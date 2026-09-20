@@ -1,0 +1,11 @@
+services:
+  pi-con:
+    build: .
+    image: pi-con:local
+    devices:
+      - /dev/snd:/dev/snd
+    group_add:
+      - audio
+    volumes:
+      - ./config:/app/config:ro
+    restart: unless-stopped

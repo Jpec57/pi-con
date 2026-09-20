@@ -1,0 +1,6 @@
+{
+  "wakeword": "hey_jarvis",
+  "threshold": 0.5,
+  "audio_device": null,
+  "command": ["/usr/bin/logger", "pi-con wake word detected"]
+}
