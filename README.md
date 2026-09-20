@@ -20,13 +20,13 @@ OpenWakeWord's bundled `hey_jarvis` model is the initial default. Add a custom m
 
 ## Container use
 
-Audio devices belong to the host, so the Docker image is portable but microphone access is enabled only at runtime. On Linux (including Raspberry Pi OS):
+Audio devices belong to the host, so the Docker image is portable but microphone access is enabled only at runtime. Docker Desktop on Windows and macOS cannot expose the host microphone as `/dev/snd`; use native Python mode for microphone testing there.
+
+On Linux (including Raspberry Pi OS), enable the Raspberry Pi hardware override:
 
 ```sh
-docker compose up -d --build
+docker compose -f compose.yaml -f compose.pi.yaml up -d --build
 ```
-
-Windows and macOS Docker Desktop do not normally expose the host microphone as `/dev/snd`; use the native Python mode for microphone testing there. The ARM64 image build works on either platform:
 
 ```sh
 docker buildx build --platform linux/arm64 --load -t pi-con:latest .
