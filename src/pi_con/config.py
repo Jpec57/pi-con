@@ -12,6 +12,8 @@ class Settings:
     threshold: float
     audio_device: str | int | None
     command: tuple[str, ...]
+    cooldown_seconds: float = 2.0
+    ui_port: int | None = 8080
     sample_rate: int = 16_000
     frame_samples: int = 1_280
 
@@ -27,4 +29,6 @@ def load_settings(path: str | Path | None = None) -> Settings:
         threshold=float(data.get("threshold", 0.5)),
         audio_device=data.get("audio_device"),
         command=command,
+        cooldown_seconds=float(data.get("cooldown_seconds", 2.0)),
+        ui_port=None if data.get("ui_port", 8080) is None else int(data.get("ui_port", 8080)),
     )

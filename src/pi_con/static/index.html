@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pi-Con</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #16181d; --muted: #667085; --line: #e3e6ec;
+    --accent: #3b6cf6; --wake: #12a150; --error: #d92d20; --track: #e8ebf1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --card: #181b22; --text: #eceef3; --muted: #98a1b3; --line: #262a34;
+      --accent: #7a9bff; --wake: #3ddc84; --error: #ff6b5e; --track: #262a34;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  h1 { margin: 0; font-size: 1.25rem; }
+  .pill { padding: 4px 12px; border-radius: 999px; font-size: .85rem; border: 1px solid var(--line); background: var(--card); color: var(--muted); }
+  .pill.ok { color: var(--wake); border-color: var(--wake); }
+  .pill.bad { color: var(--error); border-color: var(--error); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  .label { color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; }
+  #heard { font-size: clamp(1.6rem, 6vw, 3rem); font-weight: 650; min-height: 1.3em; margin: 6px 0 2px; word-break: break-word; }
+  #heard.flash { animation: flash 1.2s ease-out; }
+  @keyframes flash { from { color: var(--wake); } to { color: var(--text); } }
+  #heard-meta { color: var(--muted); font-size: .9rem; min-height: 1.2em; }
+  .meters { display: grid; gap: 14px; }
+  .meter-head { display: flex; justify-content: space-between; font-size: .9rem; margin-bottom: 4px; }
+  .meter-head span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .track { position: relative; height: 12px; border-radius: 6px; background: var(--track); overflow: hidden; }
+  .bar { height: 100%; width: 0; background: var(--accent); transition: width .15s linear; }
+  #score-bar.hot { background: var(--wake); }
+  #threshold { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: .6; left: 50%; }
+  ol { list-style: none; margin: 8px 0 0; padding: 0; max-height: 45vh; overflow-y: auto; }
+  li { display: flex; gap: 10px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--line); }
+  li:first-child { border-top: 0; }
+  li time { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; flex: none; }
+  .tag { flex: none; font-size: .7rem; font-weight: 700; padding: 2px 8px; border-radius: 6px; color: #fff; background: var(--muted); }
+  .tag.wake { background: var(--wake); } .tag.said { background: var(--accent); } .tag.error { background: var(--error); }
+  li span.text { word-break: break-word; }
+  .empty { color: var(--muted); padding: 8px 0; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Pi-Con</h1>
+    <span id="pill" class="pill">connecting…</span>
+  </header>
+
+  <section class="card">
+    <div class="label">Last heard</div>
+    <div id="heard">…</div>
+    <div id="heard-meta">Waiting for the wake word</div>
+  </section>
+
+  <section class="card meters">
+    <div>
+      <div class="meter-head"><span>Microphone level</span><span id="level-val">–</span></div>
+      <div class="track"><div id="level-bar" class="bar"></div></div>
+    </div>
+    <div>
+      <div class="meter-head"><span>Wake word score</span><span id="score-val">–</span></div>
+      <div class="track"><div id="score-bar" class="bar"></div><div id="threshold" title="threshold"></div></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="label">History</div>
+    <ol id="log"><li class="empty">Nothing yet.</li></ol>
+  </section>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const MAX_ROWS = 100;
+  let lastScoreAt = 0, connected = false, failed = false;
+
+  function setPill() {
+    const pill = $("pill");
+    let text = "connecting…", cls = "pill";
+    if (failed) { text = "error"; cls += " bad"; }
+    else if (!connected) { text = "disconnected"; cls += " bad"; }
+    else if (Date.now() - lastScoreAt > 3000) { text = "no audio"; cls += " bad"; }
+    else { text = "listening"; cls += " ok"; }
+    pill.textContent = text; pill.className = cls;
+  }
+
+  function stamp(seconds) {
+    return new Date(seconds * 1000).toLocaleTimeString([], { hour12: false });
+  }
+
+  function addRow(event, tag, tagClass, text) {
+    const log = $("log");
+    const empty = log.querySelector(".empty");
+    if (empty) empty.remove();
+    const row = document.createElement("li");
+    const time = document.createElement("time"); time.textContent = stamp(event.time);
+    const badge = document.createElement("span"); badge.className = "tag " + tagClass; badge.textContent = tag;
+    const body = document.createElement("span"); body.className = "text"; body.textContent = text;
+    row.append(time, badge, body);
+    log.prepend(row);
+    while (log.children.length > MAX_ROWS) log.lastChild.remove();
+  }
+
+  function heard(event, text, meta) {
+    const el = $("heard");
+    el.textContent = text;
+    el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+    $("heard-meta").textContent = meta + " · " + stamp(event.time);
+  }
+
+  function handle(event) {
+    switch (event.type) {
+      case "score": {
+        lastScoreAt = Date.now();
+        const score = event.score || 0, level = event.level || 0;
+        $("score-bar").style.width = Math.min(100, score * 100) + "%";
+        $("score-bar").classList.toggle("hot", score >= (event.threshold || 0.5));
+        $("score-val").textContent = score.toFixed(2);
+        $("level-bar").style.width = Math.min(100, Math.sqrt(level) * 150) + "%";
+        $("level-val").textContent = level.toFixed(3);
+        if (event.threshold != null) $("threshold").style.left = event.threshold * 100 + "%";
+        break;
+      }
+      case "wake":
+        heard(event, "“" + event.word + "”", "Wake word detected, score " + event.score.toFixed(2));
+        addRow(event, "WAKE", "wake", event.word + " (score " + event.score.toFixed(2) + ")");
+        break;
+      case "transcript":
+        heard(event, event.text, "Transcribed");
+        addRow(event, "SAID", "said", event.text);
+        break;
+      case "status":
+        failed = event.state === "error";
+        addRow(event, failed ? "ERROR" : "INFO", failed ? "error" : "", event.message);
+        break;
+    }
+    setPill();
+  }
+
+  const source = new EventSource("/events");
+  source.onopen = () => { connected = true; setPill(); };
+  source.onerror = () => { connected = false; setPill(); };  // EventSource retries by itself
+  source.onmessage = (message) => handle(JSON.parse(message.data));
+  setInterval(setPill, 1000);
+</script>
+</body>
+</html>

@@ -14,5 +14,8 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 RUN pip install .
 COPY config ./config
+# The openwakeword wheel ships no model files; bake them in so the Pi works offline.
+RUN pi-con --download-models
 
+EXPOSE 8080
 ENTRYPOINT ["pi-con"]

@@ -1,0 +1,54 @@
+name: Test and deploy to Raspberry Pi
+
+# Tests run on every push. Deploying needs the Pi to be reachable from GitHub (see README, "CI deploy"),
+# so it only runs when triggered by hand from the Actions tab.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-pi
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - run: pytest
+
+  deploy:
+    needs: test
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Configure SSH
+        env:
+          PI_SSH_PRIVATE_KEY: ${{ secrets.PI_SSH_PRIVATE_KEY }}
+          PI_KNOWN_HOSTS: ${{ secrets.PI_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$PI_SSH_PRIVATE_KEY" > ~/.ssh/pi_key
+          chmod 600 ~/.ssh/pi_key
+          if [ -n "$PI_KNOWN_HOSTS" ]; then printf '%s\n' "$PI_KNOWN_HOSTS" > ~/.ssh/known_hosts; fi
+
+      - name: Deploy
+        env:
+          PI_HOST: ${{ secrets.PI_HOST }}
+          PI_USER: ${{ secrets.PI_USER }}
+          PI_PORT: ${{ secrets.PI_PORT }}
+          PI_TARGET_DIR: ${{ secrets.PI_TARGET_DIR }}
+          PI_SSH_KEY_PATH: ~/.ssh/pi_key
+        run: ./scripts/deploy.sh

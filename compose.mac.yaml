@@ -1,0 +1,8 @@
+# Docker Desktop on macOS cannot expose the microphone, so replay a sample WAV instead.
+# Usage: ./scripts/make-sample.sh && docker compose -f compose.yaml -f compose.mac.yaml up --build
+services:
+  pi-con:
+    command: ["--wav", "/samples/hey_jarvis.wav", "--verbose"]
+    volumes:
+      - ./samples:/samples:ro
+    restart: "no"
