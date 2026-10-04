@@ -1,4 +1,5 @@
 import json
+import urllib.error
 import urllib.request
 import wave
 
@@ -92,3 +93,42 @@ def test_read_wav_frames_rejects_wrong_format(tmp_path):
     write_wav(path, np.ones(100), rate=44_100)
     with pytest.raises(ValueError, match="ffmpeg"):
         read_wav_frames(path, 16_000, 1280)
+
+
+def test_listen_button_endpoint(server):
+    bus, url = server
+    request = urllib.request.Request(url + "/listen", method="POST")
+    with pytest.raises(urllib.error.HTTPError) as refused:  # no STT wired in this fixture
+        urllib.request.urlopen(request, timeout=5)
+    assert refused.value.code == 409
+    srv = start_ui(bus, 0, host="127.0.0.1", on_listen=lambda: True)
+    try:
+        with urllib.request.urlopen(
+            urllib.request.Request(f"http://127.0.0.1:{srv.server_address[1]}/listen", method="POST"), timeout=5
+        ) as ok:
+            assert ok.status == 202
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_debug_and_action_endpoints():
+    called = []
+    srv = start_ui(
+        EventBus(), 0, host="127.0.0.1",
+        actions={"restart-audio": lambda: called.append(1) or True},
+        debug_info=lambda: {"audio": {"stream": "running"}},
+    )
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        with urllib.request.urlopen(base + "/debug", timeout=5) as reply:
+            assert json.load(reply)["audio"]["stream"] == "running"
+        with urllib.request.urlopen(urllib.request.Request(base + "/restart-audio", method="POST"), timeout=5) as ok:
+            assert ok.status == 202
+        assert called == [1]
+        with pytest.raises(urllib.error.HTTPError) as unknown:
+            urllib.request.urlopen(urllib.request.Request(base + "/nope", method="POST"), timeout=5)
+        assert unknown.value.code == 404
+    finally:
+        srv.shutdown()
+        srv.server_close()

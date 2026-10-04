@@ -5,6 +5,7 @@ import logging
 import queue
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from collections.abc import Callable
 from importlib.resources import files
 
 from .events import EventBus
@@ -17,9 +18,19 @@ KEEPALIVE_SECONDS = 15
 class UiServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address: tuple[str, int], bus: EventBus) -> None:
+    def __init__(
+        self,
+        address: tuple[str, int],
+        bus: EventBus,
+        on_listen: Callable[[], bool] | None = None,
+        actions: dict[str, Callable[[], bool]] | None = None,
+        debug_info: Callable[[], dict] | None = None,
+    ) -> None:
         super().__init__(address, _Handler)
         self.bus = bus
+        self.on_listen = on_listen
+        self.actions = actions or {}
+        self.debug_info = debug_info
         self.page = files("pi_con").joinpath("static/index.html").read_bytes()
 
 
@@ -32,8 +43,20 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, "text/html; charset=utf-8", self.server.page)
         elif path == "/healthz":
             self._send(200, "text/plain; charset=utf-8", b"ok")
+        elif path == "/debug":
+            body = json.dumps(self.server.debug_info() if self.server.debug_info else {}).encode()
+            self._send(200, "application/json", body)
         elif path == "/events":
             self._stream_events()
+        else:
+            self._send(404, "text/plain; charset=utf-8", b"not found")
+
+    def do_POST(self) -> None:  # noqa: N802 (stdlib naming)
+        if self.path.split("?", 1)[0] == "/listen":
+            started = self.server.on_listen is not None and self.server.on_listen()
+            self._send(202 if started else 409, "text/plain; charset=utf-8", b"listening" if started else b"speech-to-text is off")
+        elif (action := self.server.actions.get(self.path.split("?", 1)[0].lstrip("/"))) is not None:
+            self._send(202, "text/plain; charset=utf-8", b"ok" if action() else b"refused")
         else:
             self._send(404, "text/plain; charset=utf-8", b"not found")
 
@@ -81,9 +104,16 @@ class _Handler(BaseHTTPRequestHandler):
         logger.debug("ui: " + format, *args)
 
 
-def start_ui(bus: EventBus, port: int, host: str = "0.0.0.0") -> UiServer:
+def start_ui(
+    bus: EventBus,
+    port: int,
+    host: str = "0.0.0.0",
+    on_listen: Callable[[], bool] | None = None,
+    actions: dict[str, Callable[[], bool]] | None = None,
+    debug_info: Callable[[], dict] | None = None,
+) -> UiServer:
     """Serve the UI on a background thread. Bound to all interfaces so other devices on the LAN can open it."""
-    server = UiServer((host, port), bus)
+    server = UiServer((host, port), bus, on_listen, actions, debug_info)
     threading.Thread(target=server.serve_forever, name="ui", daemon=True).start()
     logger.info("UI on http://localhost:%d", server.server_address[1])
     return server

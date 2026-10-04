@@ -2,14 +2,24 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
+import threading
 
 from .commands import run_command
 from .config import load_settings
+from .debug import DebugState, RingLogHandler
 from .events import EventBus
 from .listener import WakeWordListener
 
 logger = logging.getLogger(__name__)
+
+
+def restart_process() -> bool:
+    """Exit shortly after answering the HTTP request; systemd (Restart=always) starts a fresh process."""
+    logger.warning("Restart requested from the UI")
+    threading.Timer(0.5, os._exit, args=(0,)).start()
+    return True
 
 
 def main() -> None:
@@ -28,10 +38,15 @@ def main() -> None:
         print(sd.query_devices())
         return
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    log_ring = RingLogHandler()
+    logging.getLogger().addHandler(log_ring)
     settings = load_settings(args.config)
     if args.download_models:
         from .models import ensure_models
         ensure_models(settings.wakeword)
+        if settings.stt_enabled:
+            from .stt import ensure_stt_model
+            ensure_stt_model(settings.stt_model_dir)
         return
 
     wav_frames = None
@@ -43,11 +58,21 @@ def main() -> None:
             parser.error(str(error))
 
     bus = EventBus()
+    debug = DebugState()
+    transcriber = None
+    if settings.stt_enabled:
+        from .stt import Transcriber
+        transcriber = Transcriber(settings.stt_model_dir, settings.stt_threads)
+    listener = WakeWordListener(
+        settings, lambda: run_command(settings.command), bus=bus, wav_frames=wav_frames, transcriber=transcriber, debug=debug,
+    )
     if settings.ui_port is not None:
         from .ui import start_ui
-        start_ui(bus, settings.ui_port)
-
-    listener = WakeWordListener(settings, lambda: run_command(settings.command), bus=bus, wav_frames=wav_frames)
+        start_ui(
+            bus, settings.ui_port, on_listen=listener.request_listen,
+            actions={"restart-audio": listener.request_audio_restart, "restart-app": restart_process},
+            debug_info=lambda: {**debug.snapshot(), "log": list(log_ring.lines)},
+        )
     try:
         listener.run_forever()
     except KeyboardInterrupt:

@@ -29,8 +29,20 @@
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
   .label { color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; }
   #heard { font-size: clamp(1.6rem, 6vw, 3rem); font-weight: 650; min-height: 1.3em; margin: 6px 0 2px; word-break: break-word; }
-  #heard.flash { animation: flash 1.2s ease-out; }
-  @keyframes flash { from { color: var(--wake); } to { color: var(--text); } }
+  #heard.live { color: var(--accent); }
+  #heard::after {
+    content: ""; display: inline-block; width: .08em; height: 1em; margin-left: .08em; vertical-align: -.12em;
+    background: currentColor; animation: blink 1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  button {
+    font: inherit; font-weight: 600; padding: 8px 16px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--accent); background: var(--accent); color: #fff;
+  }
+  button:disabled { opacity: .6; cursor: default; }
+  button.on { background: var(--wake); border-color: var(--wake); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--wake) 25%, transparent); } }
   #heard-meta { color: var(--muted); font-size: .9rem; min-height: 1.2em; }
   .meters { display: grid; gap: 14px; }
   .meter-head { display: flex; justify-content: space-between; font-size: .9rem; margin-bottom: 4px; }
@@ -46,6 +58,14 @@
   .tag { flex: none; font-size: .7rem; font-weight: 700; padding: 2px 8px; border-radius: 6px; color: #fff; background: var(--muted); }
   .tag.wake { background: var(--wake); } .tag.said { background: var(--accent); } .tag.error { background: var(--error); }
   li span.text { word-break: break-word; }
+  details summary { cursor: pointer; font-weight: 600; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+  button.secondary { background: transparent; color: var(--text); border-color: var(--line); }
+  button.danger { background: transparent; color: var(--error); border-color: var(--error); }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; margin: 8px 0; font-size: .9rem; }
+  dt { color: var(--muted); } dd { margin: 0; font-variant-numeric: tabular-nums; word-break: break-word; }
+  dd.warn { color: var(--error); font-weight: 600; }
+  pre { margin: 8px 0 0; max-height: 40vh; overflow: auto; font-size: .78rem; line-height: 1.35; white-space: pre-wrap; color: var(--muted); }
   .empty { color: var(--muted); padding: 8px 0; }
 </style>
 </head>
@@ -57,8 +77,11 @@
   </header>
 
   <section class="card">
-    <div class="label">Last heard</div>
-    <div id="heard">…</div>
+    <div class="card-head">
+      <div class="label">Last heard</div>
+      <button id="talk" type="button">🎤 Speak</button>
+    </div>
+    <div id="heard"></div>
     <div id="heard-meta">Waiting for the wake word</div>
   </section>
 
@@ -71,6 +94,20 @@
       <div class="meter-head"><span>Wake word score</span><span id="score-val">–</span></div>
       <div class="track"><div id="score-bar" class="bar"></div><div id="threshold" title="threshold"></div></div>
     </div>
+  </section>
+
+  <section class="card">
+    <details id="debug">
+      <summary>Debug &amp; controls</summary>
+      <div class="toolbar">
+        <button id="restart-audio" class="secondary" type="button">Restart microphone</button>
+        <button id="restart-app" class="danger" type="button">Restart app</button>
+      </div>
+      <div id="control-msg" class="label"></div>
+      <dl id="debug-info"></dl>
+      <div class="label">Recent logs</div>
+      <pre id="debug-log"></pre>
+    </details>
   </section>
 
   <section class="card">
@@ -90,7 +127,8 @@
     if (failed) { text = "error"; cls += " bad"; }
     else if (!connected) { text = "disconnected"; cls += " bad"; }
     else if (Date.now() - lastScoreAt > 3000) { text = "no audio"; cls += " bad"; }
-    else { text = "listening"; cls += " ok"; }
+    else if (capturing) { text = "listening to you"; cls += " ok"; }
+    else { text = "waiting for wake word"; cls += " ok"; }
     pill.textContent = text; pill.className = cls;
   }
 
@@ -111,12 +149,46 @@
     while (log.children.length > MAX_ROWS) log.lastChild.remove();
   }
 
-  function heard(event, text, meta) {
+  // Typewriter: the text on screen catches up with `target` one character at a time.
+  let target = "", shown = 0, capturing = false;
+  const TYPE_DELAY_MS = 35;
+
+  function typeInto(text) {
+    let common = 0;
+    while (common < Math.min(shown, text.length) && text[common] === target[common]) common++;
+    target = text;
+    shown = Math.min(shown, common);  // the recogniser revised earlier words: retype from the change
+    renderHeard();
+  }
+
+  function renderHeard() {
     const el = $("heard");
-    el.textContent = text;
-    el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+    el.textContent = target.slice(0, shown);
+    el.classList.toggle("live", capturing);
+  }
+
+  setInterval(() => {
+    if (shown < target.length) { shown++; renderHeard(); }
+  }, TYPE_DELAY_MS);
+
+  function heard(event, text, meta) {
+    typeInto(text);
     $("heard-meta").textContent = meta + " · " + stamp(event.time);
   }
+
+  function setCapturing(active) {
+    capturing = active;
+    $("talk").classList.toggle("on", active);
+    $("talk").disabled = active;
+    $("talk").textContent = active ? "Listening…" : "🎤 Speak";
+    if (active) { typeInto(""); $("heard-meta").textContent = "Speak now"; }
+    renderHeard();
+  }
+
+  $("talk").onclick = async () => {
+    const reply = await fetch("/listen", { method: "POST" }).catch(() => null);
+    if (!reply || !reply.ok) $("heard-meta").textContent = "Speech-to-text is not available";
+  };
 
   function handle(event) {
     switch (event.type) {
@@ -132,8 +204,14 @@
         break;
       }
       case "wake":
-        heard(event, "“" + event.word + "”", "Wake word detected, score " + event.score.toFixed(2));
+        $("heard-meta").textContent = "Wake word “" + event.word + "” detected · " + stamp(event.time);
         addRow(event, "WAKE", "wake", event.word + " (score " + event.score.toFixed(2) + ")");
+        break;
+      case "capture":
+        setCapturing(event.active);
+        break;
+      case "partial":
+        typeInto(event.text);
         break;
       case "transcript":
         heard(event, event.text, "Transcribed");
@@ -146,6 +224,53 @@
     }
     setPill();
   }
+
+  async function control(path, label) {
+    $("control-msg").textContent = label + "…";
+    const reply = await fetch(path, { method: "POST" }).catch(() => null);
+    $("control-msg").textContent = reply && reply.ok ? label + ": done" : label + ": failed";
+  }
+  $("restart-audio").onclick = () => control("/restart-audio", "Restarting the microphone");
+  $("restart-app").onclick = () => {
+    if (confirm("Restart the whole app? The page reconnects by itself.")) control("/restart-app", "Restarting the app");
+  };
+
+  function rows(info) {
+    const a = info.audio || {}, sys = info.system || {};
+    const age = a.last_block_age_s;
+    return [
+      ["Uptime", info.uptime_s + " s"],
+      ["Mic stream", a.stream, a.stream !== "running"],
+      ["Device", a.device + " @ " + a.capture_rate + " Hz"],
+      ["Last audio block", age + " s ago", age > 2],
+      ["Audio blocks", a.blocks], ["Overflows", a.overflows],
+      ["Stalls / mic restarts", a.stalls + " / " + a.stream_restarts, a.stalls > 0],
+      ["Last audio error", a.last_error || "–", !!a.last_error],
+      ["CPU temp", sys.cpu_temp_c != null ? sys.cpu_temp_c + " °C" : "–"],
+      ["Load", (sys.load || []).join(" ")], ["Memory", sys.memory_mb != null ? sys.memory_mb + " MB" : "–"],
+    ];
+  }
+
+  async function refreshDebug() {
+    if (!$("debug").open) return;
+    try {
+      const info = await (await fetch("/debug", { cache: "no-store" })).json();
+      const list = $("debug-info"); list.replaceChildren();
+      for (const [name, value, warn] of rows(info)) {
+        const dt = document.createElement("dt"); dt.textContent = name;
+        const dd = document.createElement("dd"); dd.textContent = value; if (warn) dd.className = "warn";
+        list.append(dt, dd);
+      }
+      const log = $("debug-log"), atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 4;
+      log.textContent = (info.log || []).join("\n");
+      if (atEnd) log.scrollTop = log.scrollHeight;
+    } catch (error) {
+      $("debug-info").replaceChildren();
+      $("debug-log").textContent = "Cannot reach the app: " + error;
+    }
+  }
+  $("debug").addEventListener("toggle", refreshDebug);
+  setInterval(refreshDebug, 2000);
 
   const source = new EventSource("/events");
   source.onopen = () => { connected = true; setPill(); };

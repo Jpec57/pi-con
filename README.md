@@ -47,7 +47,7 @@ Config keys in `config/settings.json`: `wakeword` (`hey_jarvis`, `alexa`, `hey_m
 
 ## The web UI
 
-Once running, open `http://<host>:8080` (`localhost` on the Mac, the Pi's IP on the Pi). It shows the microphone level, the wake word score against the threshold, the last thing heard, and a history. Speech-to-text transcripts will appear in the same page once STT exists. There is no login: keep it on your LAN and never port-forward it. Change the port with `"ui_port"` in `config/settings.json`; `null` disables the UI.
+Once running, open `http://<host>:8080` (`localhost` on the Mac, the Pi's IP on the Pi). It shows the microphone level, the wake word score against the threshold, the last thing heard, and a history. After the wake word (or when you press **Speak**), what you say is transcribed in French and typed out live in the "Last heard" box. Turn it off with `"stt_enabled": false` in `config/settings.json`; the model (~120 MB) is fetched by `pi-con --download-models`. There is no login: keep it on your LAN and never port-forward it. Change the port with `"ui_port"` in `config/settings.json`; `null` disables the UI.
 
 ## Deploy to the Pi (Pi 4 or Pi 5, 64-bit OS)
 
