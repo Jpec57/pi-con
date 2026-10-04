@@ -1,5 +1,6 @@
 {
   "wakeword": "hey_jarvis",
+  "wake_phrase": "Hey Jarvis",
   "threshold": 0.5,
   "audio_device": null,
   "cooldown_seconds": 2.0,

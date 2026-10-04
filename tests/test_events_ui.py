@@ -132,3 +132,15 @@ def test_debug_and_action_endpoints():
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_page_gets_the_wake_phrase_injected_safely():
+    srv = start_ui(EventBus(), 0, host="127.0.0.1", wake_phrase='Hey "Jpec" </script>')
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{srv.server_address[1]}/", timeout=5) as page:
+            html = page.read().decode()
+        assert "{{WAKE_PHRASE}}" not in html
+        assert 'const WAKE_PHRASE = "Hey \\"Jpec\\" \\u003c/script>";' in html
+    finally:
+        srv.shutdown()
+        srv.server_close()

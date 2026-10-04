@@ -2,90 +2,198 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#070506">
 <title>Pi-Con</title>
 <style>
+  @property --fade { syntax: "<percentage>"; inherits: false; initial-value: 55%; }
   :root {
-    --bg: #f6f7f9; --card: #ffffff; --text: #16181d; --muted: #667085; --line: #e3e6ec;
-    --accent: #3b6cf6; --wake: #12a150; --error: #d92d20; --track: #e8ebf1;
+    color-scheme: dark;
+    --bg: #070506; --glass: rgba(255,255,255,.05); --glass-line: rgba(255,255,255,.1);
+    --text: #f6efef; --muted: #a0929a; --accent: #ff3b4a; --accent2: #ff7a59; --wake: #ff5a67; --error: #ffb43a;
+    --bubble: linear-gradient(135deg, #ff3b4a, #a3112a); --glow: rgba(255,59,74,.5);
   }
-  @media (prefers-color-scheme: dark) {
+  @media (prefers-color-scheme: light) {
     :root {
-      --bg: #0f1115; --card: #181b22; --text: #eceef3; --muted: #98a1b3; --line: #262a34;
-      --accent: #7a9bff; --wake: #3ddc84; --error: #ff6b5e; --track: #262a34;
+      color-scheme: light;
+      --bg: #fbf5f4; --glass: rgba(255,255,255,.7); --glass-line: rgba(40,16,20,.12);
+      --text: #1d1215; --muted: #735f64; --accent: #d81e30; --accent2: #f0603a; --wake: #d81e30; --error: #b85c00;
+      --glow: rgba(216,30,48,.35);
     }
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    margin: 0; color: var(--text); background: var(--bg); overflow: hidden;
+    font: 16px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
-  main { max-width: 860px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
-  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-  h1 { margin: 0; font-size: 1.25rem; }
-  .pill { padding: 4px 12px; border-radius: 999px; font-size: .85rem; border: 1px solid var(--line); background: var(--card); color: var(--muted); }
-  .pill.ok { color: var(--wake); border-color: var(--wake); }
-  .pill.bad { color: var(--error); border-color: var(--error); }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
-  .label { color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; }
-  #heard { font-size: clamp(1.6rem, 6vw, 3rem); font-weight: 650; min-height: 1.3em; margin: 6px 0 2px; word-break: break-word; }
-  #heard.live { color: var(--accent); }
-  #heard::after {
-    content: ""; display: inline-block; width: .08em; height: 1em; margin-left: .08em; vertical-align: -.12em;
-    background: currentColor; animation: blink 1s steps(1) infinite;
+  body::before {  /* slow aurora */
+    content: ""; position: fixed; inset: -20%; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(40% 35% at 15% 20%, color-mix(in srgb, var(--accent) 30%, transparent), transparent 70%),
+      radial-gradient(35% 35% at 85% 30%, color-mix(in srgb, #7a0a1c 55%, transparent), transparent 70%),
+      radial-gradient(50% 40% at 50% 100%, color-mix(in srgb, var(--accent) 34%, transparent), transparent 70%);
+    animation: drift 24s ease-in-out infinite alternate; filter: blur(30px);
   }
+  @keyframes drift { to { transform: translate3d(-4%, 3%, 0) rotate(6deg) scale(1.08); } }
+
+  main {
+    height: 100dvh; max-width: 780px; margin: 0 auto; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none; }
+  h1 { margin: 0; font-size: 1.05rem; font-weight: 650; letter-spacing: .14em; text-transform: uppercase;
+       background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .head-right { display: flex; align-items: center; gap: 10px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; font-size: .8rem;
+    color: var(--muted); background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(14px);
+  }
+  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .pill.ok { color: var(--wake); } .pill.ok::before { box-shadow: 0 0 8px currentColor; }
+  .pill.bad { color: var(--error); }
+  .icon-btn {
+    width: 36px; height: 36px; padding: 0; border-radius: 50%; display: grid; place-items: center; cursor: pointer;
+    color: var(--muted); background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(14px);
+  }
+  .icon-btn:hover { color: var(--text); }
+  svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ---- stage + chat (centre of the screen) ---- */
+  .stage { flex: 1 1 0; min-height: 0; display: flex; align-items: center; }
+  .chat { position: relative; width: 100%; height: min(54dvh, 480px); transition: height .55s cubic-bezier(.2,.8,.2,1); }
+  main.expanded .chat { height: 100%; }
+  .scroller {
+    --fade: 50%; height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--glass-line) transparent;
+    display: flex; flex-direction: column; padding: 0 4px;
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade));
+            mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade));
+    transition: --fade .55s ease;
+  }
+  main.expanded .scroller { --fade: 8%; }
+  .thread { margin-top: auto; display: flex; flex-direction: column; gap: 12px; padding: 24px 0 14dvh; transition: padding .55s cubic-bezier(.2,.8,.2,1); }
+  main.expanded .thread { padding-bottom: 8px; }
+
+  .msg { display: flex; flex-direction: column; align-items: center; gap: 4px; animation: rise .45s cubic-bezier(.2,.8,.2,1); transition: opacity .6s, filter .6s; }
+  @keyframes rise { from { opacity: 0; transform: translateY(12px); } }
+  /* collapsed: only the latest message is sharp, older ones melt away */
+  main:not(.expanded) .msg:nth-last-child(2) { opacity: .5; filter: blur(.4px); }
+  main:not(.expanded) .msg:nth-last-child(n+3) { opacity: .2; filter: blur(1px); }
+  .bubble {
+    max-width: 94%; padding: 12px 22px; border-radius: 24px; color: #fff; background: var(--bubble); text-align: center;
+    font-size: clamp(1.15rem, 3.8vw, 1.65rem); line-height: 1.35; font-weight: 500; word-break: break-word; box-shadow: 0 8px 34px -10px var(--glow), inset 0 1px 0 rgba(255,255,255,.18);
+  }
+  .bubble.live::after, .bubble.typing::after {
+    content: ""; display: inline-block; width: 2px; height: 1.05em; margin-left: 3px; vertical-align: -.17em; background: currentColor; animation: blink 1s steps(1) infinite;
+  }
+  .bubble:empty::before { content: "…"; opacity: .7; }
   @keyframes blink { 50% { opacity: 0; } }
-  .card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-  button {
-    font: inherit; font-weight: 600; padding: 8px 16px; border-radius: 999px; cursor: pointer;
-    border: 1px solid var(--accent); background: var(--accent); color: #fff;
+  .msg time { font-size: .72rem; color: var(--muted); }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px; border-radius: 999px; font-size: .8rem; color: var(--muted);
+    background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(10px);
   }
-  button:disabled { opacity: .6; cursor: default; }
-  button.on { background: var(--wake); border-color: var(--wake); animation: pulse 1.2s ease-in-out infinite; }
-  @keyframes pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--wake) 25%, transparent); } }
-  #heard-meta { color: var(--muted); font-size: .9rem; min-height: 1.2em; }
-  .meters { display: grid; gap: 14px; }
-  .meter-head { display: flex; justify-content: space-between; font-size: .9rem; margin-bottom: 4px; }
+  .chip.wake { color: var(--wake); border-color: color-mix(in srgb, var(--wake) 45%, transparent); }
+  .chip.error { color: var(--error); border-color: color-mix(in srgb, var(--error) 45%, transparent); }
+  .empty { margin: auto; text-align: center; color: var(--muted); font-size: 1.1rem; }
+  .latest {
+    position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); opacity: 0; pointer-events: none; transition: opacity .25s; font: inherit; font-size: .8rem;
+    padding: 6px 14px; border-radius: 999px; cursor: pointer; color: var(--text); background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(14px);
+  }
+  .latest.show { opacity: 1; pointer-events: auto; }
+
+  /* ---- dock: the orb, thumb-reachable at the bottom ---- */
+  .dock { flex: none; display: grid; justify-items: center; gap: 8px; padding-top: 4px; text-align: center; }
+  .orb {
+    --lvl: 0; --size: clamp(72px, 12dvh, 96px); position: relative; width: var(--size); aspect-ratio: 1; border-radius: 50%; border: 0; padding: 0; cursor: pointer;
+    color: #fff; display: grid; place-items: center; transition: transform .4s cubic-bezier(.3,1.4,.5,1), filter .3s, width .45s ease;
+    background: radial-gradient(circle at 32% 28%, #ffb3b8, var(--accent) 40%, #7d0f22 85%);
+    box-shadow: 0 0 calc(26px + var(--lvl) * 80px) var(--glow), inset 0 -8px 20px rgba(0,0,0,.35);
+    animation: breathe 5s ease-in-out infinite;
+  }
+  main.expanded .orb { --size: 52px; }
+  .orb svg { width: 36%; height: 36%; stroke-width: 2; }
+  .orb::before, .orb::after {
+    content: ""; position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid var(--accent2); opacity: 0; pointer-events: none;
+  }
+  .orb:hover { transform: scale(1.06); }
+  .orb:active { transform: scale(.95); }
+  .orb.capturing { background: radial-gradient(circle at 32% 28%, #fff0e6, var(--accent2) 42%, #c4161f 88%); animation: none; transform: scale(calc(1.04 + var(--lvl) * .35)); transition: transform .12s linear, width .45s ease; }
+  .orb.capturing::before { animation: ring 1.6s ease-out infinite; }
+  .orb.capturing::after { animation: ring 1.6s ease-out .8s infinite; }
+  .orb.bad { filter: grayscale(.9) brightness(.65); animation: none; }
+  @keyframes breathe { 50% { transform: scale(1.045); } }
+  @keyframes ring { from { opacity: .7; transform: scale(1); } to { opacity: 0; transform: scale(1.9); } }
+  .caption { color: var(--muted); font-size: .95rem; max-height: 2em; overflow: hidden; transition: opacity .3s, max-height .4s; }
+  .caption b { color: var(--text); font-weight: 600; }
+  main.expanded .caption { opacity: 0; max-height: 0; }
+
+  /* ---- details dialog ---- */
+  dialog {
+    width: min(640px, calc(100vw - 24px)); max-height: 88dvh; padding: 0; border: 1px solid var(--glass-line); border-radius: 22px; color: var(--text);
+    background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(24px); box-shadow: 0 30px 80px rgba(0,0,0,.5);
+  }
+  dialog::backdrop { background: rgba(0,0,0,.45); backdrop-filter: blur(3px); }
+  .sheet { padding: 18px; display: grid; gap: 16px; }
+  .sheet-head { display: flex; justify-content: space-between; align-items: center; }
+  .sheet h2 { margin: 0; font-size: 1rem; }
+  .label { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
+  .meter-head { display: flex; justify-content: space-between; font-size: .85rem; margin-bottom: 5px; }
   .meter-head span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; }
-  .track { position: relative; height: 12px; border-radius: 6px; background: var(--track); overflow: hidden; }
-  .bar { height: 100%; width: 0; background: var(--accent); transition: width .15s linear; }
+  .track { position: relative; height: 8px; border-radius: 4px; background: var(--glass-line); overflow: hidden; }
+  .bar { height: 100%; width: 0; border-radius: 4px; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .15s linear; }
   #score-bar.hot { background: var(--wake); }
   #threshold { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: .6; left: 50%; }
-  ol { list-style: none; margin: 8px 0 0; padding: 0; max-height: 45vh; overflow-y: auto; }
-  li { display: flex; gap: 10px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--line); }
-  li:first-child { border-top: 0; }
-  li time { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; flex: none; }
-  .tag { flex: none; font-size: .7rem; font-weight: 700; padding: 2px 8px; border-radius: 6px; color: #fff; background: var(--muted); }
-  .tag.wake { background: var(--wake); } .tag.said { background: var(--accent); } .tag.error { background: var(--error); }
-  li span.text { word-break: break-word; }
-  details summary { cursor: pointer; font-weight: 600; }
-  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
-  button.secondary { background: transparent; color: var(--text); border-color: var(--line); }
-  button.danger { background: transparent; color: var(--error); border-color: var(--error); }
-  dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; margin: 8px 0; font-size: .9rem; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
+  .btn { font: inherit; font-size: .88rem; font-weight: 600; padding: 8px 16px; border-radius: 999px; cursor: pointer; color: var(--text); background: var(--glass); border: 1px solid var(--glass-line); }
+  .btn.danger { color: var(--error); border-color: color-mix(in srgb, var(--error) 50%, transparent); }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; margin: 0; font-size: .86rem; }
   dt { color: var(--muted); } dd { margin: 0; font-variant-numeric: tabular-nums; word-break: break-word; }
   dd.warn { color: var(--error); font-weight: 600; }
-  pre { margin: 8px 0 0; max-height: 40vh; overflow: auto; font-size: .78rem; line-height: 1.35; white-space: pre-wrap; color: var(--muted); }
-  .empty { color: var(--muted); padding: 8px 0; }
+  pre { margin: 6px 0 0; max-height: 30dvh; overflow: auto; font-size: .74rem; line-height: 1.4; white-space: pre-wrap; color: var(--muted); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
 </style>
 </head>
 <body>
-<main>
+<main id="app">
   <header>
     <h1>Pi-Con</h1>
-    <span id="pill" class="pill">connecting…</span>
+    <div class="head-right">
+      <span id="pill" class="pill">connecting…</span>
+      <button id="open-details" class="icon-btn" type="button" aria-label="Details and controls" title="Details & controls">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
+    </div>
   </header>
 
-  <section class="card">
-    <div class="card-head">
-      <div class="label">Last heard</div>
-      <button id="talk" type="button">🎤 Speak</button>
+  <section class="stage">
+    <div id="chat" class="chat" aria-label="Conversation">
+      <div id="scroller" class="scroller">
+        <div id="thread" class="thread" aria-live="polite">
+          <div id="empty" class="empty"></div>
+        </div>
+      </div>
+      <button id="latest" class="latest" type="button">↓ Latest</button>
     </div>
-    <div id="heard"></div>
-    <div id="heard-meta">Waiting for the wake word</div>
   </section>
 
-  <section class="card meters">
+  <footer class="dock">
+    <button id="orb" class="orb" type="button" aria-label="Speak">
+      <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+    </button>
+    <div id="caption" class="caption"></div>
+  </footer>
+</main>
+
+<dialog id="details">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h2>Details &amp; controls</h2>
+      <button id="close-details" class="icon-btn" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
     <div>
       <div class="meter-head"><span>Microphone level</span><span id="level-val">–</span></div>
       <div class="track"><div id="level-bar" class="bar"></div></div>
@@ -94,101 +202,120 @@
       <div class="meter-head"><span>Wake word score</span><span id="score-val">–</span></div>
       <div class="track"><div id="score-bar" class="bar"></div><div id="threshold" title="threshold"></div></div>
     </div>
-  </section>
-
-  <section class="card">
-    <details id="debug">
-      <summary>Debug &amp; controls</summary>
-      <div class="toolbar">
-        <button id="restart-audio" class="secondary" type="button">Restart microphone</button>
-        <button id="restart-app" class="danger" type="button">Restart app</button>
-      </div>
-      <div id="control-msg" class="label"></div>
-      <dl id="debug-info"></dl>
-      <div class="label">Recent logs</div>
-      <pre id="debug-log"></pre>
-    </details>
-  </section>
-
-  <section class="card">
-    <div class="label">History</div>
-    <ol id="log"><li class="empty">Nothing yet.</li></ol>
-  </section>
-</main>
+    <div class="toolbar">
+      <button id="restart-audio" class="btn" type="button">Restart microphone</button>
+      <button id="restart-app" class="btn danger" type="button">Restart app</button>
+    </div>
+    <div id="control-msg" class="label"></div>
+    <dl id="debug-info"></dl>
+    <div><div class="label">Recent logs</div><pre id="debug-log"></pre></div>
+  </div>
+</dialog>
 
 <script>
+  const WAKE_PHRASE = "{{WAKE_PHRASE}}";  // filled in by the server from config/settings.json
   const $ = (id) => document.getElementById(id);
-  const MAX_ROWS = 100;
-  let lastScoreAt = 0, connected = false, failed = false;
+  const MAX_MESSAGES = 200, TYPE_DELAY_MS = 32, INSTANT_AFTER_S = 5, COLLAPSE_AFTER_MS = 2500;
+  let lastScoreAt = 0, connected = false, failed = false, capturing = false, live = null, smoothLevel = 0;
 
+  // ---------- status ----------
   function setPill() {
-    const pill = $("pill");
-    let text = "connecting…", cls = "pill";
+    let text, cls = "pill";
     if (failed) { text = "error"; cls += " bad"; }
     else if (!connected) { text = "disconnected"; cls += " bad"; }
     else if (Date.now() - lastScoreAt > 3000) { text = "no audio"; cls += " bad"; }
     else if (capturing) { text = "listening to you"; cls += " ok"; }
-    else { text = "waiting for wake word"; cls += " ok"; }
-    pill.textContent = text; pill.className = cls;
+    else { text = "ready"; cls += " ok"; }
+    $("pill").textContent = text; $("pill").className = cls;
+    $("orb").classList.toggle("capturing", capturing);
+    $("orb").classList.toggle("bad", cls.includes("bad"));
+    const caption = $("caption");
+    caption.replaceChildren();
+    if (capturing) caption.textContent = "Listening…";
+    else if (cls.includes("bad")) caption.textContent = "Not listening — open details to restart";
+    else {
+      const phrase = document.createElement("b"); phrase.textContent = "“" + WAKE_PHRASE + "”";
+      caption.append("Say ", phrase, " or tap");
+    }
   }
 
-  function stamp(seconds) {
-    return new Date(seconds * 1000).toLocaleTimeString([], { hour12: false });
-  }
+  const stamp = (seconds) => new Date(seconds * 1000).toLocaleTimeString([], { hour12: false });
 
-  function addRow(event, tag, tagClass, text) {
-    const log = $("log");
-    const empty = log.querySelector(".empty");
-    if (empty) empty.remove();
-    const row = document.createElement("li");
-    const time = document.createElement("time"); time.textContent = stamp(event.time);
-    const badge = document.createElement("span"); badge.className = "tag " + tagClass; badge.textContent = tag;
-    const body = document.createElement("span"); body.className = "text"; body.textContent = text;
-    row.append(time, badge, body);
-    log.prepend(row);
-    while (log.children.length > MAX_ROWS) log.lastChild.remove();
-  }
-
-  // Typewriter: the text on screen catches up with `target` one character at a time.
-  let target = "", shown = 0, capturing = false;
-  const TYPE_DELAY_MS = 35;
-
-  function typeInto(text) {
+  // ---------- typewriter ----------
+  const typers = new Set();
+  function typeInto(typer, text, instant) {
     let common = 0;
-    while (common < Math.min(shown, text.length) && text[common] === target[common]) common++;
-    target = text;
-    shown = Math.min(shown, common);  // the recogniser revised earlier words: retype from the change
-    renderHeard();
+    while (common < Math.min(typer.shown, text.length) && text[common] === typer.target[common]) common++;
+    typer.target = text;
+    typer.shown = instant ? text.length : Math.min(typer.shown, common);  // the recogniser revised words: retype from the change
+    typers.add(typer); paint(typer);
   }
-
-  function renderHeard() {
-    const el = $("heard");
-    el.textContent = target.slice(0, shown);
-    el.classList.toggle("live", capturing);
+  function paint(typer) {
+    typer.el.textContent = typer.target.slice(0, typer.shown);
+    const typing = typer.shown < typer.target.length;
+    typer.el.classList.toggle("typing", typing && !typer.live);
+    if (!typing && !typer.live) typers.delete(typer);
+    stickToBottom();
   }
+  setInterval(() => { for (const typer of typers) { if (typer.shown < typer.target.length) { typer.shown++; paint(typer); } else paint(typer); } }, TYPE_DELAY_MS);
 
+  // ---------- chat ----------
+  $("empty").textContent = "Say “" + WAKE_PHRASE + "” and speak.";
+  const app = $("app"), scroller = $("scroller"), thread = $("thread");
+  let following = true, bottomSince = 0, settlingUntil = 0;
+
+  const atBottom = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 14;
+  function stickToBottom() { if (following) scroller.scrollTop = scroller.scrollHeight; }
+  function setExpanded(on) {
+    app.classList.toggle("expanded", on);
+    if (!on) { following = true; settlingUntil = Date.now() + 900; scroller.scrollTop = scroller.scrollHeight; }
+  }
+  // keep the newest message pinned to the bottom while the panel grows or shrinks
+  new ResizeObserver(() => stickToBottom()).observe(scroller);
+  function userScrolledUp() { bottomSince = 0; setExpanded(true); }
+  scroller.addEventListener("wheel", (e) => { if (e.deltaY < 0) userScrolledUp(); }, { passive: true });
+  scroller.addEventListener("touchmove", () => { if (!atBottom()) userScrolledUp(); }, { passive: true });
+  scroller.addEventListener("scroll", () => {
+    if (Date.now() < settlingUntil) return;  // the panel is still resizing: those scroll events are not the reader's
+    following = atBottom();
+    $("latest").classList.toggle("show", !following);
+    if (!following) app.classList.add("expanded");
+  });
+  // back to the compact view once the reader has been at the newest message for a while
   setInterval(() => {
-    if (shown < target.length) { shown++; renderHeard(); }
-  }, TYPE_DELAY_MS);
+    if (!app.classList.contains("expanded") || !atBottom()) { bottomSince = 0; return; }
+    bottomSince = bottomSince || Date.now();
+    if (Date.now() - bottomSince >= COLLAPSE_AFTER_MS) { bottomSince = 0; setExpanded(false); }
+  }, 400);
+  $("latest").onclick = () => { following = true; scroller.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" }); };
 
-  function heard(event, text, meta) {
-    typeInto(text);
-    $("heard-meta").textContent = meta + " · " + stamp(event.time);
+  function push(node) {
+    const empty = $("empty"); if (empty) empty.remove();
+    thread.append(node);
+    while (thread.children.length > MAX_MESSAGES) thread.firstChild.remove();
+    stickToBottom();
   }
-
-  function setCapturing(active) {
-    capturing = active;
-    $("talk").classList.toggle("on", active);
-    $("talk").disabled = active;
-    $("talk").textContent = active ? "Listening…" : "🎤 Speak";
-    if (active) { typeInto(""); $("heard-meta").textContent = "Speak now"; }
-    renderHeard();
+  function systemLine(event, text, cls = "") {
+    const row = document.createElement("div"); row.className = "msg sys";
+    const chip = document.createElement("span"); chip.className = "chip " + cls; chip.textContent = text;
+    row.append(chip); push(row);
   }
+  function userBubble(isLive) {
+    const row = document.createElement("div"); row.className = "msg user";
+    const bubble = document.createElement("div"); bubble.className = "bubble" + (isLive ? " live" : "");
+    const time = document.createElement("time"); time.textContent = stamp(Date.now() / 1000);
+    row.append(bubble, time); push(row);
+    return { el: bubble, row, time, target: "", shown: 0, live: isLive };
+  }
+  function ensureLive() { return live || (live = userBubble(true)); }
 
-  $("talk").onclick = async () => {
-    const reply = await fetch("/listen", { method: "POST" }).catch(() => null);
-    if (!reply || !reply.ok) $("heard-meta").textContent = "Speech-to-text is not available";
-  };
+  function onTranscript(event) {
+    const instant = Date.now() / 1000 - event.time > INSTANT_AFTER_S;
+    const bubble = live || userBubble(false);
+    live = null; bubble.live = false; bubble.el.classList.remove("live");
+    bubble.time.textContent = stamp(event.time);
+    typeInto(bubble, event.text, instant);
+  }
 
   function handle(event) {
     switch (event.type) {
@@ -201,34 +328,52 @@
         $("level-bar").style.width = Math.min(100, Math.sqrt(level) * 150) + "%";
         $("level-val").textContent = level.toFixed(3);
         if (event.threshold != null) $("threshold").style.left = event.threshold * 100 + "%";
+        smoothLevel = smoothLevel * .5 + Math.min(1, Math.sqrt(level) * 1.6) * .5;
+        $("orb").style.setProperty("--lvl", smoothLevel.toFixed(2));
         break;
       }
       case "wake":
-        $("heard-meta").textContent = "Wake word “" + event.word + "” detected · " + stamp(event.time);
-        addRow(event, "WAKE", "wake", event.word + " (score " + event.score.toFixed(2) + ")");
+        systemLine(event, "✦ “" + WAKE_PHRASE + "” detected · " + event.score.toFixed(2), "wake");
         break;
       case "capture":
-        setCapturing(event.active);
+        capturing = event.active;
+        if (capturing) ensureLive();
+        else if (live) {  // the session ended without any words
+          live.row.remove(); live = null; systemLine(event, "Nothing heard");
+        }
         break;
       case "partial":
-        typeInto(event.text);
+        capturing = true;
+        typeInto(ensureLive(), event.text);
         break;
       case "transcript":
-        heard(event, event.text, "Transcribed");
-        addRow(event, "SAID", "said", event.text);
+        onTranscript(event);
         break;
       case "status":
         failed = event.state === "error";
-        addRow(event, failed ? "ERROR" : "INFO", failed ? "error" : "", event.message);
+        systemLine(event, event.message, failed ? "error" : "");
         break;
     }
     setPill();
   }
 
+  // ---------- controls ----------
+  async function post(path) {
+    const reply = await fetch(path, { method: "POST" }).catch(() => null);
+    return !!reply && reply.ok;
+  }
+  $("orb").onclick = async () => {
+    if (!await post("/listen")) $("caption").textContent = "Speech-to-text is not available";
+  };
+
+  const details = $("details");
+  $("open-details").onclick = () => { details.showModal(); refreshDebug(); };
+  $("close-details").onclick = () => details.close();
+  details.addEventListener("click", (e) => { if (e.target === details) details.close(); });
+
   async function control(path, label) {
     $("control-msg").textContent = label + "…";
-    const reply = await fetch(path, { method: "POST" }).catch(() => null);
-    $("control-msg").textContent = reply && reply.ok ? label + ": done" : label + ": failed";
+    $("control-msg").textContent = label + (await post(path) ? ": done" : ": failed");
   }
   $("restart-audio").onclick = () => control("/restart-audio", "Restarting the microphone");
   $("restart-app").onclick = () => {
@@ -250,9 +395,8 @@
       ["Load", (sys.load || []).join(" ")], ["Memory", sys.memory_mb != null ? sys.memory_mb + " MB" : "–"],
     ];
   }
-
   async function refreshDebug() {
-    if (!$("debug").open) return;
+    if (!details.open) return;
     try {
       const info = await (await fetch("/debug", { cache: "no-store" })).json();
       const list = $("debug-info"); list.replaceChildren();
@@ -269,9 +413,9 @@
       $("debug-log").textContent = "Cannot reach the app: " + error;
     }
   }
-  $("debug").addEventListener("toggle", refreshDebug);
   setInterval(refreshDebug, 2000);
 
+  // ---------- live stream ----------
   const source = new EventSource("/events");
   source.onopen = () => { connected = true; setPill(); };
   source.onerror = () => { connected = false; setPill(); };  // EventSource retries by itself

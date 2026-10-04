@@ -25,13 +25,16 @@ class UiServer(ThreadingHTTPServer):
         on_listen: Callable[[], bool] | None = None,
         actions: dict[str, Callable[[], bool]] | None = None,
         debug_info: Callable[[], dict] | None = None,
+        wake_phrase: str = "the wake word",
     ) -> None:
         super().__init__(address, _Handler)
         self.bus = bus
         self.on_listen = on_listen
         self.actions = actions or {}
         self.debug_info = debug_info
-        self.page = files("pi_con").joinpath("static/index.html").read_bytes()
+        page = files("pi_con").joinpath("static/index.html").read_text(encoding="utf-8")
+        literal = json.dumps(wake_phrase).replace("<", "\\u003c")  # a JS string literal that cannot close the <script>
+        self.page = page.replace('"{{WAKE_PHRASE}}"', literal).encode()
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -111,9 +114,10 @@ def start_ui(
     on_listen: Callable[[], bool] | None = None,
     actions: dict[str, Callable[[], bool]] | None = None,
     debug_info: Callable[[], dict] | None = None,
+    wake_phrase: str = "the wake word",
 ) -> UiServer:
     """Serve the UI on a background thread. Bound to all interfaces so other devices on the LAN can open it."""
-    server = UiServer((host, port), bus, on_listen, actions, debug_info)
+    server = UiServer((host, port), bus, on_listen, actions, debug_info, wake_phrase)
     threading.Thread(target=server.serve_forever, name="ui", daemon=True).start()
     logger.info("UI on http://localhost:%d", server.server_address[1])
     return server

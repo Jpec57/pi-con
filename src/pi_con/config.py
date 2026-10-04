@@ -14,12 +14,18 @@ class Settings:
     command: tuple[str, ...]
     cooldown_seconds: float = 2.0
     ui_port: int | None = 8080
+    wake_phrase: str = ""
     stt_enabled: bool = True
     stt_model_dir: str = "models/stt-fr"
     stt_threads: int = 2
     max_listen_seconds: float = 12.0
     sample_rate: int = 16_000
     frame_samples: int = 1_280
+
+
+def default_phrase(wakeword: str) -> str:
+    """'hey_jarvis' -> 'Hey Jarvis'; a custom model path uses its file name."""
+    return Path(wakeword).stem.replace("_", " ").replace("-", " ").title()
 
 
 def load_settings(path: str | Path | None = None) -> Settings:
@@ -35,6 +41,7 @@ def load_settings(path: str | Path | None = None) -> Settings:
         command=command,
         cooldown_seconds=float(data.get("cooldown_seconds", 2.0)),
         ui_port=None if data.get("ui_port", 8080) is None else int(data.get("ui_port", 8080)),
+        wake_phrase=str(data.get("wake_phrase") or default_phrase(data["wakeword"])),
         stt_enabled=bool(data.get("stt_enabled", True)),
         stt_model_dir=str(data.get("stt_model_dir", "models/stt-fr")),
         stt_threads=int(data.get("stt_threads", 2)),

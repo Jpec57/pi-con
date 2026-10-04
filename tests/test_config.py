@@ -18,3 +18,10 @@ def test_requires_command(tmp_path):
     path.write_text('{"wakeword": "hey_jarvis"}')
     with pytest.raises(ValueError, match="command"):
         load_settings(path)
+
+
+def test_wake_phrase_defaults_to_prettified_wakeword(tmp_path):
+    from pi_con.config import default_phrase
+
+    assert default_phrase("hey_jarvis") == "Hey Jarvis"
+    assert default_phrase("/models/ok_maison.onnx") == "Ok Maison"

@@ -71,6 +71,7 @@ def main() -> None:
         start_ui(
             bus, settings.ui_port, on_listen=listener.request_listen,
             actions={"restart-audio": listener.request_audio_restart, "restart-app": restart_process},
+            wake_phrase=settings.wake_phrase,
             debug_info=lambda: {**debug.snapshot(), "log": list(log_ring.lines)},
         )
     try:
