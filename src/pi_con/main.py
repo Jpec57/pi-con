@@ -57,8 +57,7 @@ def main() -> None:
         if not isinstance(error, sd.PortAudioError):
             raise
         logger.error(
-            "Cannot open the audio input (%s). Check `pi-con --list-devices` and 'audio_device'. "
-            "Docker Desktop on macOS cannot expose the microphone: use --wav there.", error,
+            "Cannot open the audio input (%s). Check `pi-con --list-devices` and 'audio_device'.", error,
         )
         sys.exit(1)
 

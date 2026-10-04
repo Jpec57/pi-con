@@ -1,0 +1,10 @@
+# Runtime dependencies for the Pi, installed by scripts/deploy.sh.
+# openwakeword is installed with --no-deps because it requires tflite-runtime on Linux,
+# which has no wheel for recent Python (3.13 on Raspberry Pi OS Trixie). The ONNX backend is used instead.
+numpy>=1.26,<3
+sounddevice>=0.5,<0.6
+onnxruntime>=1.10,<2
+scipy>=1.3,<2
+scikit-learn>=1,<2
+requests>=2,<3
+tqdm>=4,<5

@@ -1,7 +1,0 @@
-# Linux/Raspberry Pi-only hardware settings. Do not use this file on Docker Desktop.
-services:
-  pi-con:
-    devices:
-      - /dev/snd:/dev/snd
-    group_add:
-      - audio

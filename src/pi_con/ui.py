@@ -82,7 +82,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def start_ui(bus: EventBus, port: int, host: str = "0.0.0.0") -> UiServer:
-    """Serve the UI on a background thread. Bound to all interfaces so the Docker port mapping works."""
+    """Serve the UI on a background thread. Bound to all interfaces so other devices on the LAN can open it."""
     server = UiServer((host, port), bus)
     threading.Thread(target=server.serve_forever, name="ui", daemon=True).start()
     logger.info("UI on http://localhost:%d", server.server_address[1])

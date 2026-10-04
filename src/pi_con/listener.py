@@ -44,7 +44,7 @@ class WakeWordListener:
             logger.warning("Audio queue full; dropping frame")
 
     def _replay_wav(self) -> None:
-        """Feed the file in real time, forever, so a container without a microphone can be tested."""
+        """Feed the file in real time, forever, so it can be tested without a microphone."""
         frame_seconds = self.settings.frame_samples / self.settings.sample_rate
         silence = np.zeros(self.settings.frame_samples, dtype=np.int16)
         while True:

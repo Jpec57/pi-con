@@ -1,10 +1,10 @@
 # Pi-Con
 
-Pi-Con listens to a microphone, detects an [OpenWakeWord](https://github.com/dscripka/openWakeWord) wake word, and launches a configured command. Develop natively on macOS, deploy the Linux ARM64 Docker image to a Raspberry Pi. See [PROJECT.md](PROJECT.md) for goals, decisions and status.
+Pi-Con listens to a microphone, detects an [OpenWakeWord](https://github.com/dscripka/openWakeWord) wake word, and launches a configured command. Develop natively on macOS, deploy to a Raspberry Pi 4/5 over SSH. See [PROJECT.md](PROJECT.md) for goals, decisions and status.
 
 ## Run on your Mac (test the wake word)
 
-Docker Desktop cannot expose the Mac microphone, so run natively.
+
 
 1. **Python 3.11+**: `python3 --version` (install with `brew install python@3.12` if older).
 2. **Create a venv and install:**
@@ -47,59 +47,28 @@ Config keys in `config/settings.json`: `wakeword` (`hey_jarvis`, `alexa`, `hey_m
 
 ## The web UI
 
-Once running, open `http://<host>:8080` (`localhost` on the Mac, the Pi's IP on the Pi). It shows the microphone level, the wake word score against the threshold, the last thing heard, and a history. Speech-to-text transcripts will appear in the same page once STT exists. There is no login: keep it on your LAN and never port-forward it. Change the port with `"ui_port"` in `config/settings.json` (and the `8080:8080` mapping in `compose.yaml` / `scripts/deploy.sh`); `null` disables the UI.
+Once running, open `http://<host>:8080` (`localhost` on the Mac, the Pi's IP on the Pi). It shows the microphone level, the wake word score against the threshold, the last thing heard, and a history. Speech-to-text transcripts will appear in the same page once STT exists. There is no login: keep it on your LAN and never port-forward it. Change the port with `"ui_port"` in `config/settings.json`; `null` disables the UI.
 
-## Run with Docker
+## Deploy to the Pi (Pi 4 or Pi 5, 64-bit OS)
 
-### On your Mac (no microphone: replays a sample)
+One-time setup on the Pi: SSH enabled, your key authorised (`ssh-copy-id pi@raspberrypi.local`), a USB microphone plugged in (`arecord -l` lists it). Your user needs `sudo` (the default Pi user has it).
 
-Docker Desktop on macOS cannot expose your microphone to containers, so this verifies the image, the model download, the UI and the detection pipeline by replaying a synthetic "Hey Jarvis" on a loop. Apple Silicon builds a native `linux/arm64` image, the same architecture as the Pi.
-
-1. Start Docker Desktop.
-2. Create the sample (macOS `say` → 16 kHz mono WAV): `./scripts/make-sample.sh`
-3. Build and run:
-   ```sh
-   docker compose -f compose.yaml -f compose.mac.yaml up --build
-   ```
-4. Open **http://localhost:8080**. Every ~7 seconds you should see a `WAKE hey_jarvis` entry, and the logs show `Wake word detected`. The container configured command (`/usr/bin/logger`) runs inside the container.
-5. Stop with `Ctrl-C`, then `docker compose down`.
-
-To test with your real microphone on the Mac, use the native steps above.
-
-### On the Raspberry Pi (real microphone)
-
-On the Pi (64-bit OS): install Docker, add yourself to the groups (`sudo usermod -aG docker,audio $USER`, log out/in), and plug in the USB microphone.
+On your Mac:
 
 ```sh
-arecord -l                       # the mic must be listed
-docker compose -f compose.yaml -f compose.pi.yaml up -d --build
-docker compose logs -f           # follow the detections
-```
-
-If the default device isn't the mic, run `docker compose run --rm pi-con --list-devices` and set `"audio_device"` in `config/settings.json` (an index, or a name substring such as `"XVF3800"`). The UI is at `http://<pi-ip>:8080`; on a screen attached to the Pi, open `http://localhost:8080` in its browser.
-
-You can also build for the Pi from your Mac and push it over SSH, see below.
-
-## Deploy to the Pi (free, plain SSH)
-
-Prerequisites on the Pi: Docker installed, SSH enabled, your user in the `docker` and `audio` groups, and your SSH key authorised (`ssh-copy-id pi@raspberrypi.local`). The Pi is a 64-bit Pi 4 (`linux/arm64`).
-
-```sh
-cp .env.example .env      # then fill in PI_HOST, PI_USER, PI_SSH_KEY_PATH...
+cp .env.example .env      # fill in PI_HOST (and PI_USER, PI_SSH_KEY_PATH if needed)
 ./scripts/deploy.sh
 ```
 
-The script builds the arm64 image on your Mac, streams it over SSH (`docker save | ssh docker load`, no registry, no paid service), copies `config/settings.json`, restarts the container with `/dev/snd` and the UI port, and fails if the container isn't stable after 8 s. It prints the UI address. Logs: `ssh pi@<host> docker logs -f pi-con`.
+That is all. The script copies the code over SSH, creates a venv on the Pi, installs the package and models, installs a `pi-con` systemd service (starts at boot, restarts on failure), restarts it, and fails with the logs if it isn't running after 8 s. It prints the UI address. Re-run it after every change. `config/settings.json` is overwritten on each deploy.
 
-### CI (GitHub Actions)
+Logs: `ssh pi@<host> journalctl -fu pi-con`. If the default audio device isn't the mic, run `ssh pi@<host> /home/pi/pi-con/.venv/bin/pi-con --list-devices` and set `"audio_device"` in `config/settings.json` (an index, or a name substring such as `"XVF3800"`).
 
-`.github/workflows/deploy.yml` runs the tests on every push and pull request. The **deploy job is manual** (Actions tab → Run workflow) because of a networking fact, not a paid feature: a GitHub-hosted runner runs on the internet, so it cannot open an SSH connection to a Pi that only exists on your home network. SSH is sufficient *if the Pi is reachable*; your options, all free, are:
+Testing without a microphone: `./scripts/make-sample.sh` (macOS) then `pi-con --wav samples/hey_jarvis.wav`.
 
-- **Deploy from your Mac** with `./scripts/deploy.sh` (recommended, nothing to set up).
-- Install a [self-hosted runner](https://docs.github.com/en/actions/hosting-your-own-runners) on a machine on your LAN.
-- Join the runner and the Pi to a free Tailscale network, or forward SSH from your router (not recommended: it exposes the Pi to the internet).
+### CI
 
-If you use the manual deploy job, add these repository secrets (`.env` is git-ignored, so CI can't read it): `PI_HOST`, `PI_SSH_PRIVATE_KEY` (required), and optionally `PI_USER`, `PI_PORT`, `PI_KNOWN_HOSTS` (output of `ssh-keyscan <host>`), `PI_TARGET_DIR`.
+`.github/workflows/test.yml` runs the tests on every push and pull request. Deploying is done from your Mac only: GitHub-hosted runners cannot reach a Pi on your home network.
 
 ## Hardware acceleration
 
