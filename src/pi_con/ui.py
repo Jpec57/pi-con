@@ -3,18 +3,23 @@ from __future__ import annotations
 import json
 import logging
 import queue
+import re
+import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections.abc import Callable
 from importlib.resources import files
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from .events import EventBus
+from .ai.state import KEY_ENV
 from .ha import HLS_PREFIX, HomeAssistant, HomeAssistantError, device_list
 
 logger = logging.getLogger(__name__)
 
 KEEPALIVE_SECONDS = 15
+KEY_PATTERN = re.compile(r"[A-Za-z0-9_\-.]{20,400}")  # what API keys look like; also rejects pasted whitespace or newlines
+MODEL_PATTERN = re.compile(r"[A-Za-z0-9_\-.:/]{0,80}")
 
 
 class UiServer(ThreadingHTTPServer):
@@ -30,8 +35,12 @@ class UiServer(ThreadingHTTPServer):
         wake_phrase: str = "the wake word",
         ha: HomeAssistant | None = None,
         cameras: dict[str, str] | None = None,
+        ai_state=None,
+        mcp=None,
     ) -> None:
         super().__init__(address, _Handler)
+        self.ai_state = ai_state
+        self.mcp = mcp  # McpServer or None
         self.ha = ha
         self.cameras = cameras or {}  # camera name -> Home Assistant entity id
         self.bus = bus
@@ -57,6 +66,11 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, "application/json", body)
         elif path == "/events":
             self._stream_events()
+        elif path == "/settings":
+            self._send(200, "application/json", json.dumps(self._settings_view()).encode())
+        elif path == "/ai":
+            state = self.server.ai_state
+            self._send(200, "application/json", json.dumps(state.snapshot() if state else {"mode": False, "providers": []}).encode())
         elif path == "/devices":
             self._devices()
         elif path == "/static/hls.min.js":
@@ -68,8 +82,103 @@ class _Handler(BaseHTTPRequestHandler):
         else:
             self._send(404, "text/plain; charset=utf-8", b"not found")
 
+    def _settings_view(self) -> dict:
+        state, mcp = self.server.ai_state, self.server.mcp
+        view = state.settings_view() if state else {"providers": []}
+        store = state.store if state else None
+        view["mcp"] = {
+            "available": mcp is not None, "port": mcp.server_address[1] if mcp else None,
+            "token_source": store.source("MCP_TOKEN") if store else "none",
+        }
+        return view  # no secret in here, ever: only where each one comes from
+
+    def _json_body(self) -> dict | None:
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length)) if 0 < length <= 8192 else None
+        except ValueError:
+            return None
+        return body if isinstance(body, dict) else None
+
+    def _same_origin(self) -> bool:
+        """Refuse browser requests that come from another site (a web page cannot change settings through your browser)."""
+        origin = self.headers.get("Origin")
+        return origin is None or urlsplit(origin).netloc == self.headers.get("Host")
+
+    def _settings_post(self, route: str) -> None:
+        state, body = self.server.ai_state, self._json_body()
+        if state is None or body is None:
+            self._send(400, "text/plain; charset=utf-8", b"bad request")
+        elif route == "key":
+            name, value = body.get("name"), str(body.get("value") or "").strip()
+            if name not in KEY_ENV:
+                self._send(400, "text/plain; charset=utf-8", b"unknown provider")
+            elif value and not KEY_PATTERN.fullmatch(value):
+                self._send(400, "text/plain; charset=utf-8", b"That does not look like an API key (20+ letters, digits, - _ . only, no spaces)")
+            else:
+                (state.store.set if value else lambda n, _v: state.store.clear(n))(KEY_ENV[name], value)  # empty = back to the .env default
+                state.keys_changed()
+                state.announce()
+                self._send(200, "application/json", json.dumps(self._settings_view()).encode())
+        elif route == "ai":
+            models = body.get("models") if isinstance(body.get("models"), dict) else None
+            stt_model = body.get("stt_model")
+            checks = [*(models or {}).values(), *([stt_model] if stt_model is not None else [])]
+            if not all(isinstance(v, str) and MODEL_PATTERN.fullmatch(v.strip()) for v in checks):
+                self._send(400, "text/plain; charset=utf-8", b"invalid model name")
+                return
+            state.set_options(
+                {k: v.strip() for k, v in (models or {}).items()} if models is not None else None,
+                stt_model.strip() if stt_model is not None else None,
+                body["cloud_stt"] if isinstance(body.get("cloud_stt"), bool) else None,
+            )
+            state.announce()
+            self._send(200, "application/json", json.dumps(self._settings_view()).encode())
+        elif route == "mcp":
+            mcp = self.server.mcp
+            if mcp is None:
+                self._send(409, "text/plain; charset=utf-8", b"The MCP server is not enabled (set mcp_port in config/settings.json)")
+            elif body.get("action") == "generate":
+                token = secrets.token_hex(24)
+                state.store.set("MCP_TOKEN", token)
+                mcp.set_token(token)
+                self._send(200, "application/json", json.dumps({**self._settings_view(), "new_token": token}).encode())  # shown once
+            elif body.get("action") == "clear":
+                state.store.clear("MCP_TOKEN")
+                mcp.set_token(state.store.get("MCP_TOKEN"))  # the .env default, or off
+                self._send(200, "application/json", json.dumps(self._settings_view()).encode())
+            else:
+                self._send(400, "text/plain; charset=utf-8", b"unknown action")
+        else:
+            self._send(404, "text/plain; charset=utf-8", b"not found")
+
+    def _ai_post(self, route: str, query: dict[str, list[str]]) -> None:
+        state = self.server.ai_state
+        if state is None:
+            self._send(404, "text/plain; charset=utf-8", b"AI mode is not available")
+        elif route == "mode":
+            on = query.get("on", ["0"])[0] == "1"
+            if state.set_mode(on):
+                self._send(200, "application/json", json.dumps(state.snapshot()).encode())
+            else:
+                self._send(409, "text/plain; charset=utf-8", b"No API key configured: add OPENAI_API_KEY or ANTHROPIC_API_KEY to .env on the Pi")
+        elif route == "provider":
+            if state.set_provider(query.get("name", [""])[0]):
+                self._send(200, "application/json", json.dumps(state.snapshot()).encode())
+            else:
+                self._send(409, "text/plain; charset=utf-8", b"That provider has no API key configured")
+        else:
+            self._send(404, "text/plain; charset=utf-8", b"not found")
+
     def do_POST(self) -> None:  # noqa: N802 (stdlib naming)
-        if self.path.split("?", 1)[0] == "/listen":
+        parts = urlsplit(self.path)
+        if not self._same_origin():
+            self._send(403, "text/plain; charset=utf-8", b"cross-site request refused")
+        elif parts.path.startswith("/settings/"):
+            self._settings_post(parts.path[len("/settings/"):])
+        elif parts.path.startswith("/ai/"):
+            self._ai_post(parts.path[len("/ai/"):], parse_qs(parts.query))
+        elif self.path.split("?", 1)[0] == "/listen":
             started = self.server.on_listen is not None and self.server.on_listen()
             self._send(202 if started else 409, "text/plain; charset=utf-8", b"listening" if started else b"speech-to-text is off")
         elif (action := self.server.actions.get(self.path.split("?", 1)[0].lstrip("/"))) is not None:
@@ -170,9 +279,11 @@ def start_ui(
     wake_phrase: str = "the wake word",
     ha: HomeAssistant | None = None,
     cameras: dict[str, str] | None = None,
+    ai_state=None,
+    mcp=None,
 ) -> UiServer:
     """Serve the UI on a background thread. Bound to all interfaces so other devices on the LAN can open it."""
-    server = UiServer((host, port), bus, on_listen, actions, debug_info, wake_phrase, ha, cameras)
+    server = UiServer((host, port), bus, on_listen, actions, debug_info, wake_phrase, ha, cameras, ai_state, mcp)
     threading.Thread(target=server.serve_forever, name="ui", daemon=True).start()
     logger.info("UI on http://localhost:%d", server.server_address[1])
     return server

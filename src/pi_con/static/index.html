@@ -59,6 +59,15 @@
   .icon-btn:hover { color: var(--text); }
   svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
+  /* ---- AI mode ---- */
+  .ai-toggle { font: inherit; font-size: .8rem; font-weight: 650; letter-spacing: .06em; padding: 5px 12px; border-radius: 999px; cursor: pointer; color: var(--muted); background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(14px); }
+  .ai-toggle[aria-pressed="true"] { color: #fff; background: var(--bubble); border-color: transparent; box-shadow: 0 0 18px -4px var(--glow); }
+  .ai-toggle:disabled { opacity: .45; cursor: not-allowed; }
+  .ai-provider { font: inherit; font-size: .8rem; padding: 5px 8px; border-radius: 999px; color: var(--text); background: var(--glass); border: 1px solid var(--glass-line); }
+  .ai-provider[hidden] { display: none; }
+  .bubble.ai { color: var(--text); background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(14px); box-shadow: none; text-align: left; }
+  .msg time.ai-label { color: var(--accent2); }
+
   /* ---- camera card (opened by voice or Home Assistant) ---- */
   .camera { flex: none; position: relative; border-radius: 22px; overflow: hidden; background: #000; border: 1px solid var(--glass-line); box-shadow: 0 18px 60px -18px var(--glow); animation: rise .45s cubic-bezier(.2,.8,.2,1); }
   .camera[hidden] { display: none; }
@@ -141,7 +150,7 @@
 
   /* ---- details dialog ---- */
   dialog {
-    width: min(640px, calc(100vw - 24px)); max-height: 88dvh; padding: 0; border: 1px solid var(--glass-line); border-radius: 22px; color: var(--text);
+    overflow-y: auto; width: min(640px, calc(100vw - 24px)); max-height: 88dvh; padding: 0; border: 1px solid var(--glass-line); border-radius: 22px; color: var(--text);
     background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(24px); box-shadow: 0 30px 80px rgba(0,0,0,.5);
   }
   dialog::backdrop { background: rgba(0,0,0,.45); backdrop-filter: blur(3px); }
@@ -166,6 +175,16 @@
   div.tile { opacity: .75; }
   .btn { font: inherit; font-size: .88rem; font-weight: 600; padding: 8px 16px; border-radius: 999px; cursor: pointer; color: var(--text); background: var(--glass); border: 1px solid var(--glass-line); }
   .btn.danger { color: var(--error); border-color: color-mix(in srgb, var(--error) 50%, transparent); }
+  .settings { display: grid; gap: 14px; }
+  .field { display: grid; gap: 6px; padding: 12px; border-radius: 14px; background: var(--glass); border: 1px solid var(--glass-line); }
+  .field h3 { margin: 0; font-size: .9rem; display: flex; justify-content: space-between; gap: 8px; }
+  .field h3 span { font-weight: 400; font-size: .76rem; color: var(--muted); }
+  .field h3 span.ok { color: var(--wake); }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .row input[type="password"], .row input[type="text"] { flex: 1 1 160px; min-width: 0; font: inherit; font-size: .86rem; padding: 7px 10px; border-radius: 10px; color: var(--text); background: rgba(0,0,0,.25); border: 1px solid var(--glass-line); }
+  .row label { font-size: .84rem; display: flex; gap: 6px; align-items: center; }
+  .note { font-size: .74rem; color: var(--muted); }
+  .token-box { font: .78rem ui-monospace, monospace; word-break: break-all; padding: 8px 10px; border-radius: 10px; background: rgba(0,0,0,.35); border: 1px dashed var(--accent2); user-select: all; }
   dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; margin: 0; font-size: .86rem; }
   dt { color: var(--muted); } dd { margin: 0; font-variant-numeric: tabular-nums; word-break: break-word; }
   dd.warn { color: var(--error); font-weight: 600; }
@@ -181,6 +200,8 @@
   <header>
     <h1>Pi-Con</h1>
     <div class="head-right">
+      <select id="ai-provider" class="ai-provider" aria-label="AI provider" hidden></select>
+      <button id="ai-toggle" class="ai-toggle" type="button" aria-pressed="false" disabled title="AI mode">AI</button>
       <span id="pill" class="pill">connecting…</span>
       <button id="open-devices" class="icon-btn" type="button" aria-label="Devices" title="Devices">
         <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
@@ -249,6 +270,12 @@
       <button id="restart-app" class="btn danger" type="button">Restart app</button>
     </div>
     <div id="control-msg" class="label"></div>
+    <div>
+      <div class="label">AI &amp; integrations</div>
+      <div id="settings" class="settings"></div>
+      <div id="settings-msg" class="note"></div>
+      <div class="note">Keys are saved on the Pi in a private file and never shown again. Anyone on your network can change them here. "Remove" goes back to the value in <code>.env</code>, if there is one.</div>
+    </div>
     <dl id="debug-info"></dl>
     <div><div class="label">Recent logs</div><pre id="debug-log"></pre></div>
   </div>
@@ -259,6 +286,7 @@
   const WAKE_PHRASE = "{{WAKE_PHRASE}}";  // filled in by the server from config/settings.json
   const $ = (id) => document.getElementById(id);
   const MAX_MESSAGES = 200, TYPE_DELAY_MS = 32, INSTANT_AFTER_S = 5, COLLAPSE_AFTER_MS = 2500;
+  let ai = { mode: false, provider: "", providers: [] }, aiLive = null;
   let lastScoreAt = 0, connected = false, failed = false, capturing = false, live = null, smoothLevel = 0;
 
   // ---------- status ----------
@@ -279,9 +307,11 @@
     else {
       const phrase = document.createElement("b"); phrase.textContent = "“" + WAKE_PHRASE + "”";
       caption.append("Say ", phrase, " or tap");
+      if (ai.mode) caption.append(" · AI: " + AI_NAMES[ai.provider]);
     }
   }
 
+  const AI_NAMES = { openai: "ChatGPT", anthropic: "Claude" };
   const stamp = (seconds) => new Date(seconds * 1000).toLocaleTimeString([], { hour12: false });
 
   // ---------- typewriter ----------
@@ -358,6 +388,102 @@
     live = null; bubble.live = false; bubble.el.classList.remove("live");
     bubble.time.textContent = stamp(event.time);
     typeInto(bubble, event.text, instant);
+  }
+
+  // ---------- AI mode ----------
+  function renderAi() {
+    const usable = ai.providers.filter((p) => p.configured);
+    const toggle = $("ai-toggle");
+    toggle.setAttribute("aria-pressed", String(ai.mode));
+    toggle.disabled = usable.length === 0 && !ai.mode;
+    toggle.title = usable.length
+      ? (ai.mode ? "AI mode on: what you say goes to " + AI_NAMES[ai.provider] + ". Tap to turn off." : "Turn on AI mode")
+      : "Add OPENAI_API_KEY or ANTHROPIC_API_KEY to .env on the Pi to use AI mode";
+    const select = $("ai-provider");
+    select.hidden = usable.length < 2;
+    select.replaceChildren(...usable.map((p) => new Option(AI_NAMES[p.name], p.name)));
+    select.value = ai.provider;
+    setPill();
+  }
+  function aiBubble() {
+    if (aiLive) return aiLive;
+    const row = document.createElement("div"); row.className = "msg assistant";
+    const bubble = document.createElement("div"); bubble.className = "bubble ai live";
+    const label = document.createElement("time"); label.className = "ai-label";
+    row.append(bubble, label); push(row);
+    return (aiLive = { el: bubble, row, label, text: "" });
+  }
+  function aiText(event, final) {
+    const bubble = aiBubble();
+    bubble.text = final ? event.text : bubble.text + event.text;
+    bubble.el.textContent = bubble.text;
+    bubble.label.textContent = (AI_NAMES[event.provider] || "AI") + (final ? " · " + stamp(event.time) : "");
+    if (final) { bubble.el.classList.remove("live"); aiLive = null; }
+    stickToBottom();
+  }
+  async function aiPost(path) {
+    const reply = await fetch(path, { method: "POST" }).catch(() => null);
+    if (!reply || !reply.ok) systemLine(null, reply ? await reply.text() : "Cannot reach the app", "error");
+  }
+  $("ai-toggle").onclick = () => aiPost("/ai/mode?on=" + (ai.mode ? 0 : 1));
+  $("ai-provider").onchange = (e) => aiPost("/ai/provider?name=" + encodeURIComponent(e.target.value));
+  fetch("/ai").then((r) => r.json()).then((info) => { ai = { ...ai, ...info }; renderAi(); }).catch(() => {});
+
+  // ---------- settings: API keys, models, MCP (saved on the Pi; .env values are the defaults) ----------
+  function el(tag, props = {}, ...kids) {
+    const node = Object.assign(document.createElement(tag), props);
+    node.append(...kids);
+    return node;
+  }
+  const SOURCES = { ui: "saved here", env: "default from .env", none: "not set" };
+  async function settingsCall(path, body) {
+    $("settings-msg").textContent = "Saving…";
+    const reply = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+    if (!reply || !reply.ok) { $("settings-msg").textContent = reply ? await reply.text() : "Cannot reach the app"; return null; }
+    $("settings-msg").textContent = "Saved.";
+    const info = await reply.json();
+    renderSettings(info);
+    return info;
+  }
+  function statusTag(source) { return el("span", { textContent: SOURCES[source] || source, className: source === "none" ? "" : "ok" }); }
+  function providerField(p) {
+    const key = el("input", { type: "password", placeholder: "Paste a new API key", autocomplete: "off", spellcheck: false });
+    const model = el("input", { type: "text", placeholder: "model (default: " + p.default_model + ")", value: p.model, spellcheck: false });
+    const row = el("div", { className: "row" }, key,
+      el("button", { className: "btn", type: "button", textContent: "Save key", onclick: () => key.value.trim() && settingsCall("/settings/key", { name: p.name, value: key.value }) }));
+    if (p.key_source === "ui") row.append(el("button", { className: "btn", type: "button", textContent: "Remove", onclick: () => settingsCall("/settings/key", { name: p.name, value: "" }) }));
+    return el("div", { className: "field" }, el("h3", {}, AI_NAMES[p.name] + " API key", statusTag(p.key_source)), row,
+      el("div", { className: "row" }, model,
+        el("button", { className: "btn", type: "button", textContent: "Save model", onclick: () => settingsCall("/settings/ai", { models: { [p.name]: model.value } }) })));
+  }
+  function renderSettings(info, newToken) {
+    const root = $("settings"); root.replaceChildren();
+    for (const p of info.providers) root.append(providerField(p));
+    const stt = el("input", { type: "text", placeholder: "transcription model (default: " + info.default_stt_model + ")", value: info.stt_model, spellcheck: false });
+    const cloud = el("input", { type: "checkbox", checked: info.cloud_stt });
+    root.append(el("div", { className: "field" }, el("h3", {}, "Speech recognition in AI mode"),
+      el("div", { className: "row" }, el("label", {}, cloud, "Use OpenAI to transcribe (needs the OpenAI key; audio leaves the Pi in AI mode only)")),
+      el("div", { className: "row" }, stt, el("button", { className: "btn", type: "button", textContent: "Save", onclick: () => settingsCall("/settings/ai", { stt_model: stt.value, cloud_stt: cloud.checked }) }))));
+    const mcp = info.mcp || {};
+    const box = el("div", { className: "field" }, el("h3", {}, "MCP connector (Claude / ChatGPT apps)", statusTag(mcp.token_source || "none")));
+    if (!mcp.available) box.append(el("div", { className: "note", textContent: "The MCP server is not enabled (set mcp_port in config/settings.json)." }));
+    else {
+      const row = el("div", { className: "row" }, el("button", { className: "btn", type: "button", textContent: mcp.token_source === "none" ? "Generate token" : "Generate a new token",
+        onclick: async () => { const next = await settingsCall("/settings/mcp", { action: "generate" }); if (next && next.new_token) showToken(next.new_token, mcp.port); } }));
+      if (mcp.token_source === "ui") row.append(el("button", { className: "btn", type: "button", textContent: "Remove", onclick: () => settingsCall("/settings/mcp", { action: "clear" }) }));
+      box.append(row, el("div", { id: "token-out" }),
+        el("div", { className: "note", textContent: "Listens on this Pi only (port " + mcp.port + "). To use it from the Claude app, expose it over HTTPS with a tunnel (see the README), then add https://<your-host>/mcp/<token> as a custom connector." }));
+    }
+    root.append(box);
+  }
+  function showToken(token, port) {
+    const out = $("token-out"); if (!out) return;
+    const path = "/mcp/" + token;
+    out.replaceChildren(el("div", { className: "note", textContent: "Shown once. Copy it now:" }), el("div", { className: "token-box", textContent: path }),
+      el("button", { className: "btn", type: "button", textContent: "Copy", onclick: () => navigator.clipboard && navigator.clipboard.writeText(path).then(() => { $("settings-msg").textContent = "Copied."; }) }));
+  }
+  async function loadSettings() {
+    try { renderSettings(await (await fetch("/settings", { cache: "no-store" })).json()); } catch (error) { $("settings-msg").textContent = "Cannot reach the app"; }
   }
 
   // ---------- camera ----------
@@ -438,6 +564,9 @@
 
   function handle(event) {
     switch (event.type) {
+      case "ai": ai = event; renderAi(); break;
+      case "ai_delta": aiText(event, false); break;
+      case "ai_reply": aiText(event, true); break;
       case "camera":
         if (event.action === "show") showCamera(event.name); else hideCamera();
         break;
@@ -489,7 +618,7 @@
   };
 
   const details = $("details");
-  $("open-details").onclick = () => { details.showModal(); refreshDebug(); };
+  $("open-details").onclick = () => { details.showModal(); refreshDebug(); loadSettings(); };
   $("close-details").onclick = () => details.close();
   details.addEventListener("click", (e) => { if (e.target === details) details.close(); });
 

@@ -35,6 +35,13 @@ pi "mkdir -p '$PI_TARGET_DIR'"
 COPYFILE_DISABLE=1 tar --no-xattrs -czf - pyproject.toml README.md requirements-pi.txt src config \
   | pi "tar xzf - -C '$PI_TARGET_DIR'"
 
+# Optional secrets (AI keys, MCP token): merge only these lines into the Pi's private .env, keeping everything else there (HA_TOKEN...).
+SECRET_KEYS='OPENAI_API_KEY|ANTHROPIC_API_KEY|MCP_TOKEN'
+if grep -qE "^($SECRET_KEYS)=.+" .env 2>/dev/null; then
+  echo "==> Sending API keys / MCP token to $PI_TARGET_DIR/.env (private to $PI_USER)"
+  grep -E "^($SECRET_KEYS)=.+" .env | pi "umask 077; f='$PI_TARGET_DIR/.env'; touch \"\$f\"; { grep -vE '^($SECRET_KEYS)=' \"\$f\" || true; cat; } > \"\$f.new\" && mv \"\$f.new\" \"\$f\""
+fi
+
 echo "==> Installing and restarting the service"
 pi "bash -s" <<REMOTE
 set -euo pipefail

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import logging
 import tarfile
+import threading
+import time
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -61,8 +64,42 @@ class Utterance:
         return text, bool(recognizer.is_endpoint(stream))
 
 
+class CloudUtterance:
+    """Same interface as `Utterance`: the local model still finds the end of speech and shows live words, but the final
+    text comes from a cloud transcriber run on the recorded audio. If it fails or is too slow, the local text is kept."""
+
+    def __init__(self, local: Utterance, transcribe: Callable[[np.ndarray], str], timeout: float = 6.0) -> None:
+        self._local, self._transcribe, self._timeout = local, transcribe, timeout
+        self._frames: list[np.ndarray] = []
+        self._local_text = ""
+        self._cloud_text = ""
+        self._done = threading.Event()
+        self._started: float | None = None
+
+    def _run(self) -> None:
+        try:
+            self._cloud_text = self._transcribe(np.concatenate(self._frames))
+        except Exception as error:  # the local text is the fallback
+            logger.warning("Cloud transcription failed (%s); keeping the local text", error)
+        finally:
+            self._done.set()
+
+    def accept(self, frame: np.ndarray) -> tuple[str, bool]:
+        if self._started is None:
+            self._local_text, finished = self._local.accept(frame)
+            self._frames.append(frame)
+            if finished:  # audio complete: send it, without blocking the microphone loop
+                self._started = time.monotonic()
+                threading.Thread(target=self._run, name="cloud-stt", daemon=True).start()
+            return self._local_text, False
+        if self._done.is_set() or time.monotonic() - self._started > self._timeout:
+            return self._cloud_text or self._local_text, True
+        return self._local_text, False
+
+
 class Transcriber:
-    def __init__(self, model_dir: str | Path, threads: int = 2) -> None:
+    def __init__(self, model_dir: str | Path, threads: int = 2, cloud: Callable[[], Callable[[np.ndarray], str] | None] | None = None) -> None:
+        self._cloud = cloud  # returns a cloud transcribe function while AI mode wants one, else None
         import sherpa_onnx
 
         folder = ensure_stt_model(model_dir)
@@ -79,5 +116,7 @@ class Transcriber:
             rule2_min_trailing_silence=END_SILENCE,
         )
 
-    def start(self) -> Utterance:
-        return Utterance(self._recognizer)
+    def start(self) -> Utterance | CloudUtterance:
+        local = Utterance(self._recognizer)
+        transcribe = self._cloud() if self._cloud else None
+        return CloudUtterance(local, transcribe) if transcribe else local

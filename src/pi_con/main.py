@@ -30,6 +30,8 @@ def main() -> None:
     parser.add_argument("--list-devices", action="store_true", help="Print audio inputs and exit")
     parser.add_argument("--verbose", action="store_true", help="Log live wake word scores to help tune the threshold")
     parser.add_argument("--test-skill", metavar="TEXT", help="Show which skill a spoken sentence would trigger, then exit (no microphone needed)")
+    parser.add_argument("--ask", metavar="TEXT", help="Ask the AI (needs an API key) as if it was said: prints the answer and the tool calls WITHOUT running them")
+    parser.add_argument("--provider", choices=("openai", "anthropic"), help="Provider for --ask (default: the saved one)")
     parser.add_argument("--download-models", action="store_true", help="Download the configured model and exit")
     parser.add_argument(
         "--wav",
@@ -51,6 +53,30 @@ def main() -> None:
             verdict = "TRIGGERS" if match.score >= settings.skill_threshold else "no"
             print(f"{match.score:.2f}  {verdict:8}  {match.skill.name}  (closest phrase: {match.phrase!r})")
         print(f"threshold {settings.skill_threshold:.2f}; heard as {args.test_skill!r}")
+        return
+    if args.ask is not None:
+        from .ai.conversation import AiAssistant
+        from .ai.state import AiState
+        from .tools import Tool, build_tools
+        from .skills import load_skills
+        ask_bus = EventBus()
+        from .secrets import SecretStore
+        state = AiState(ask_bus, settings.ai or {}, path=os.devnull, store=SecretStore(".state/secrets.json"))
+        provider = args.provider or state.provider
+        if provider not in state.configured():
+            parser.error(f"no API key for {provider}: save one in the settings panel of the UI, or set {'OPENAI_API_KEY' if provider == 'openai' else 'ANTHROPIC_API_KEY'} in .env")
+        cams = {camera.name: camera.entity for camera in settings.cameras}
+        skills = load_skills(settings.skills_file)
+
+        def dry_run() -> list[Tool]:
+            real = build_tools(type("NoRouter", (), {"run_skill": staticmethod(lambda skill: "ok")})(), cams, None, lambda: skills, "ai")
+            return [Tool(t.name, t.description, t.schema, lambda a, n=t.name: print(f"  [tool] {n} {a}") or "ok (dry run: nothing was executed)", t.read_only) for t in real]
+
+        print(f"{provider} ({state.model(provider)}):")
+        print(AiAssistant(ask_bus, state, dry_run).ask(args.ask, provider) or "(no answer, see the error above)")
+        for event in ask_bus.subscribe()[1]:
+            if event["type"] == "status":
+                print(event["message"])
         return
     if args.download_models:
         from .models import ensure_models
@@ -74,17 +100,47 @@ def main() -> None:
 
     bus = EventBus()
     debug = DebugState()
+    from .ai.state import AiState
+    from .secrets import SecretStore
+    store = SecretStore(".state/secrets.json")  # keys saved from the UI; .env values are the defaults
+    ai_state = AiState(bus, settings.ai or {}, store=store)
+    cloud_stt: dict = {}  # (key, model) -> transcriber, rebuilt when either is changed in the UI
+
+    def cloud_transcribe():
+        """The OpenAI transcriber while AI mode is on and an OpenAI key exists (the audio leaves the Pi only then)."""
+        key = store.get("OPENAI_API_KEY")
+        if not (ai_state.mode and ai_state.cloud_stt() and key):
+            return None
+        fingerprint = (key, ai_state.stt_model())
+        if fingerprint not in cloud_stt:
+            from .ai.stt_cloud import OpenAITranscriber
+            cloud_stt.clear()
+            cloud_stt[fingerprint] = OpenAITranscriber(key, ai_state.stt_model())
+        return cloud_stt[fingerprint].transcribe
+
     transcriber = None
     if settings.stt_enabled:
         from .stt import Transcriber
-        transcriber = Transcriber(settings.stt_model_dir, settings.stt_threads)
+        transcriber = Transcriber(settings.stt_model_dir, settings.stt_threads, cloud=cloud_transcribe)
     ha = HomeAssistant(settings.ha_url, settings.ha_token)
     cameras = {camera.name: camera.entity for camera in settings.cameras}
     fallback = None
     if settings.needle_enabled:
         from .fallback import NeedleFallback
         fallback = NeedleFallback(cameras)
-    Router(bus, settings.skills_file, cameras, ha, settings.skill_threshold, fallback).start()
+    router = Router(bus, settings.skills_file, cameras, ha, settings.skill_threshold, fallback)
+    from .ai.conversation import AiAssistant
+    from .tools import build_tools as build_ai_tools
+    router.ai = AiAssistant(
+        bus, ai_state, lambda: build_ai_tools(router, cameras, ha, router.skills, "ai"),
+        history_turns=int((settings.ai or {}).get("history_turns", 6)),
+    )
+    router.start()
+    ai_state.announce()
+    mcp_server = None
+    if settings.mcp_port is not None:
+        from .mcp import build_tools, start_mcp
+        mcp_server = start_mcp(settings.mcp_port, store.get("MCP_TOKEN"), lambda: build_tools(router, cameras, ha, router.skills, "mcp"))
     listener = WakeWordListener(
         settings, lambda: run_command(settings.command), bus=bus, wav_frames=wav_frames, transcriber=transcriber, debug=debug,
     )
@@ -95,6 +151,7 @@ def main() -> None:
             actions={"restart-audio": listener.request_audio_restart, "restart-app": restart_process},
             wake_phrase=settings.wake_phrase,
             ha=ha,
+            ai_state=ai_state, mcp=mcp_server,
             cameras=cameras,
             debug_info=lambda: {**debug.snapshot(), "log": list(log_ring.lines)},
         )

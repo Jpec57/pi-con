@@ -11,3 +11,5 @@ tqdm>=4,<5
 sherpa-onnx>=1.10
 websocket-client>=1.7
 cactus-needle>=3,<4
+anthropic>=1,<2
+openai>=2,<4

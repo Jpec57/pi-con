@@ -18,5 +18,21 @@
   ],
   "skills_file": "config/skills.json",
   "skill_threshold": 0.8,
-  "needle_enabled": true
+  "needle_enabled": true,
+  "mcp_port": 8765,
+  "ai": {
+    "default_provider": "anthropic",
+    "history_turns": 6,
+    "max_output_tokens": 1024,
+    "cloud_stt": true,
+    "providers": {
+      "anthropic": {
+        "model": "claude-sonnet-5-5"
+      },
+      "openai": {
+        "model": "gpt-6-luna",
+        "stt_model": "gpt-4o-transcribe"
+      }
+    }
+  }
 }

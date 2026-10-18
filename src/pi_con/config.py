@@ -29,6 +29,9 @@ class Settings:
     ha_token: str = ""
     cameras: tuple[Camera, ...] = ()
     skills_file: str = "config/skills.json"
+    mcp_port: int | None = None  # set it to serve MCP on 127.0.0.1:<port> (needs MCP_TOKEN)
+    mcp_token: str = ""
+    ai: dict | None = None  # the "ai" block of settings.json; keys come from the environment
     needle_enabled: bool = True  # fallback for sentences no skill matched (needs cactus-needle)
     skill_threshold: float = 0.8  # 0..1 similarity needed between what was heard and a skill phrase
     sample_rate: int = 16_000
@@ -76,6 +79,9 @@ def load_settings(path: str | Path | None = None) -> Settings:
         skills_file=str(data.get("skills_file", "config/skills.json")),
         skill_threshold=float(data.get("skill_threshold", 0.8)),
         needle_enabled=bool(data.get("needle_enabled", True)),
+        ai=dict(data.get("ai") or {}),
+        mcp_port=None if data.get("mcp_port") is None else int(data["mcp_port"]),
+        mcp_token=os.getenv("MCP_TOKEN", ""),
         cameras=tuple(
             Camera(str(camera["name"]), str(camera["entity"]))
             for camera in data.get("cameras", [])

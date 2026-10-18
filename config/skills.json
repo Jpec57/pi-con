@@ -2,13 +2,84 @@
   "skills": [
     {
       "name": "Voir la caméra rabbit",
-      "phrases": ["vidéo rabbit", "vidéo rabbite", "vidéo rabit", "montre la caméra rabbit", "caméra rabbit"],
-      "action": { "type": "camera", "camera": "rabbit" }
+      "phrases": [
+        "vidéo rabbit",
+        "vidéo rabbite",
+        "vidéo rabit",
+        "montre la caméra rabbit",
+        "caméra rabbit"
+      ],
+      "action": {
+        "type": "camera",
+        "camera": "rabbit"
+      }
     },
     {
       "name": "Fermer la caméra",
-      "phrases": ["ferme la vidéo", "ferme la caméra", "ferme la video", "cache la caméra"],
-      "action": { "type": "camera_hide" }
+      "phrases": [
+        "ferme la vidéo",
+        "ferme la caméra",
+        "ferme la video",
+        "cache la caméra"
+      ],
+      "action": {
+        "type": "camera_hide"
+      }
+    },
+    {
+      "name": "Mode IA",
+      "phrases": [
+        "mode ia",
+        "active le mode ia",
+        "active l'ia",
+        "mode intelligence artificielle",
+        "mode i a"
+      ],
+      "action": {
+        "type": "ai_mode",
+        "mode": "on"
+      }
+    },
+    {
+      "name": "Mode normal",
+      "phrases": [
+        "mode normal",
+        "désactive le mode ia",
+        "désactive l'ia",
+        "quitte le mode ia",
+        "arrête le mode ia"
+      ],
+      "action": {
+        "type": "ai_mode",
+        "mode": "off"
+      }
+    },
+    {
+      "name": "Utiliser Claude",
+      "phrases": [
+        "utilise claude",
+        "passe sur claude",
+        "utilise clode",
+        "utilise cloud"
+      ],
+      "action": {
+        "type": "ai_provider",
+        "provider": "anthropic"
+      }
+    },
+    {
+      "name": "Utiliser ChatGPT",
+      "phrases": [
+        "utilise chatgpt",
+        "utilise chat gpt",
+        "passe sur chatgpt",
+        "passe sur chat gpt",
+        "utilise chat g p t"
+      ],
+      "action": {
+        "type": "ai_provider",
+        "provider": "openai"
+      }
     }
   ]
 }

@@ -7,11 +7,15 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
+PROVIDERS = ("openai", "anthropic")
+CONTROL_TYPES = ("ai_mode", "ai_provider")  # always handled locally, even in AI mode, so the owner can leave it by voice
 ACTION_FIELDS = {  # action type -> required fields
     "camera": ("camera",),
     "camera_hide": (),
     "command": ("command",),
     "ha_service": ("service",),
+    "ai_mode": ("mode",),
+    "ai_provider": ("provider",),
 }
 
 
@@ -23,6 +27,8 @@ class Skill:
     fallback: bool = False  # may the Needle model trigger it for sentences no phrase matched? Camera skills need no flag
     description: str = ""  # tells Needle what the skill does (used only when `fallback` is true)
     fallback_words: str = ""  # extra words (besides the phrases') one of which must be heard for Needle to trigger it
+    mcp: bool = False  # exposed as a tool to remote assistants (Claude / ChatGPT apps) through the MCP server
+    ai: bool = False  # exposed as a tool to the LLM in AI mode
 
 
 @dataclass(frozen=True)
@@ -57,9 +63,13 @@ def parse_skills(data: object) -> tuple[Skill, ...]:
             raise ValueError(f"{label}: action '{action['type']}' needs {', '.join(missing)}")
         if action["type"] == "command" and not (isinstance(action["command"], list) and all(isinstance(a, str) for a in action["command"])):
             raise ValueError(f"{label}: 'command' must be a list of strings, e.g. [\"/usr/bin/logger\", \"hello\"]")
+        if action["type"] == "ai_mode" and action["mode"] not in ("on", "off", "toggle"):
+            raise ValueError(f"{label}: 'mode' must be on, off or toggle")
+        if action["type"] == "ai_provider" and action["provider"] not in PROVIDERS:
+            raise ValueError(f"{label}: 'provider' must be one of {', '.join(PROVIDERS)}")
         if action["type"] == "ha_service" and action["service"].count(".") != 1:
             raise ValueError(f"{label}: 'service' must look like light.turn_on")
-        skills.append(Skill(str(raw["name"]), tuple(phrases), action, bool(raw.get("fallback", False)), str(raw.get("description", "")), str(raw.get("fallback_words", ""))))
+        skills.append(Skill(str(raw["name"]), tuple(phrases), action, bool(raw.get("fallback", False)), str(raw.get("description", "")), str(raw.get("fallback_words", "")), bool(raw.get("mcp", False)), bool(raw.get("ai", False))))
     return tuple(skills)
 
 
