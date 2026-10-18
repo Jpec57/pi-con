@@ -59,6 +59,17 @@
   .icon-btn:hover { color: var(--text); }
   svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
+  /* ---- camera card (opened by voice or Home Assistant) ---- */
+  .camera { flex: none; position: relative; border-radius: 22px; overflow: hidden; background: #000; border: 1px solid var(--glass-line); box-shadow: 0 18px 60px -18px var(--glow); animation: rise .45s cubic-bezier(.2,.8,.2,1); }
+  .camera[hidden] { display: none; }
+  .camera video { display: block; width: 100%; max-height: 46dvh; aspect-ratio: 16 / 9; object-fit: contain; background: #000; }
+  .camera-bar { position: absolute; inset: 0 0 auto 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; background: linear-gradient(rgba(0,0,0,.65), transparent); color: #fff; }
+  .camera-bar .icon-btn { width: 32px; height: 32px; color: #fff; }
+  #camera-status { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: .95rem; background: rgba(0,0,0,.35); pointer-events: none; transition: opacity .3s; }
+  #camera-status:empty { opacity: 0; }
+  main.has-camera .stage { flex-basis: 0; }
+  main.has-camera .chat { height: 100%; }
+
   /* ---- stage + chat (centre of the screen) ---- */
   .stage { flex: 1 1 0; min-height: 0; display: flex; align-items: center; }
   .chat { position: relative; width: 100%; height: min(54dvh, 480px); transition: height .55s cubic-bezier(.2,.8,.2,1); }
@@ -145,6 +156,14 @@
   #score-bar.hot { background: var(--wake); }
   #threshold { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: .6; left: 50%; }
   .toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; overflow-y: auto; max-height: 62dvh; }
+  .tile { font: inherit; text-align: left; display: grid; gap: 6px; justify-items: start; padding: 14px; border-radius: 18px; color: var(--text); background: var(--glass); border: 1px solid var(--glass-line); }
+  .tile svg { width: 26px; height: 26px; color: var(--accent2); }
+  .tile .tile-name { font-weight: 600; font-size: .9rem; line-height: 1.25; word-break: break-word; }
+  .tile .tile-state { font-size: .76rem; color: var(--muted); }
+  button.tile { cursor: pointer; border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+  button.tile:hover { background: color-mix(in srgb, var(--accent) 14%, var(--glass)); }
+  div.tile { opacity: .75; }
   .btn { font: inherit; font-size: .88rem; font-weight: 600; padding: 8px 16px; border-radius: 999px; cursor: pointer; color: var(--text); background: var(--glass); border: 1px solid var(--glass-line); }
   .btn.danger { color: var(--error); border-color: color-mix(in srgb, var(--error) 50%, transparent); }
   dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; margin: 0; font-size: .86rem; }
@@ -163,11 +182,23 @@
     <h1>Pi-Con</h1>
     <div class="head-right">
       <span id="pill" class="pill">connecting…</span>
+      <button id="open-devices" class="icon-btn" type="button" aria-label="Devices" title="Devices">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+      </button>
       <button id="open-details" class="icon-btn" type="button" aria-label="Details and controls" title="Details & controls">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
       </button>
     </div>
   </header>
+
+  <section id="camera" class="camera" hidden aria-label="Camera">
+    <video id="camera-video" muted autoplay playsinline></video>
+    <div class="camera-bar">
+      <b id="camera-title"></b>
+      <button id="camera-close" class="icon-btn" type="button" aria-label="Close the camera"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div id="camera-status"></div>
+  </section>
 
   <section class="stage">
     <div id="chat" class="chat" aria-label="Conversation">
@@ -187,6 +218,17 @@
     <div id="caption" class="caption"></div>
   </footer>
 </main>
+
+<dialog id="devices">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h2>Devices</h2>
+      <button id="close-devices" class="icon-btn" type="button" aria-label="Back to the main screen"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div id="devices-note" class="label"></div>
+    <div id="devices-grid" class="tiles"></div>
+  </div>
+</dialog>
 
 <dialog id="details">
   <div class="sheet">
@@ -212,6 +254,7 @@
   </div>
 </dialog>
 
+<script src="/static/hls.min.js"></script>
 <script>
   const WAKE_PHRASE = "{{WAKE_PHRASE}}";  // filled in by the server from config/settings.json
   const $ = (id) => document.getElementById(id);
@@ -317,8 +360,87 @@
     typeInto(bubble, event.text, instant);
   }
 
+  // ---------- camera ----------
+  const video = $("camera-video");
+  let hls = null, cameraName = null, cameraTimer = 0;
+  function stopVideo() {
+    clearTimeout(cameraTimer);
+    if (hls) { hls.destroy(); hls = null; }
+    video.removeAttribute("src"); video.load();
+  }
+  function hideCamera() {
+    cameraName = null; stopVideo();
+    $("camera").hidden = true; app.classList.remove("has-camera");
+  }
+  async function showCamera(name) {
+    stopVideo();
+    cameraName = name;
+    $("camera-title").textContent = name;
+    $("camera-status").textContent = "Connecting…";
+    $("camera").hidden = false; app.classList.add("has-camera");
+    const retry = (why) => {
+      $("camera-status").textContent = why + " — retrying…";
+      cameraTimer = setTimeout(() => cameraName === name && showCamera(name), 4000);
+    };
+    let url;
+    try {
+      const reply = await fetch("/camera/" + encodeURIComponent(name) + "/stream", { cache: "no-store" });
+      if (cameraName !== name) return;
+      if (!reply.ok) return retry(await reply.text());
+      url = (await reply.json()).url;
+    } catch (error) { return cameraName === name ? retry("Cannot reach the app") : undefined; }
+    const playing = () => { if (cameraName === name) $("camera-status").textContent = ""; };
+    video.onplaying = playing;
+    if (window.Hls && Hls.isSupported()) {
+      hls = new Hls({ lowLatencyMode: true });
+      hls.on(Hls.Events.ERROR, (_e, data) => { if (data.fatal && cameraName === name) { stopVideo(); retry("Stream interrupted"); } });
+      hls.loadSource(url); hls.attachMedia(video);
+    } else video.src = url;  // Safari / iOS play HLS natively
+    video.play().catch(() => {});
+  }
+  $("camera-close").onclick = hideCamera;
+
+  // ---------- devices (debug view of everything Home Assistant knows) ----------
+  const devicesDialog = $("devices");
+  const ICONS = {  // inline SVG paths, same style as the rest of the page
+    camera: '<path d="M3 8a2 2 0 0 1 2-2h2l1.5-2h7L17 6h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.5" r="3.5"/>',
+    light: '<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/>',
+    switch: '<rect x="3" y="8" width="18" height="8" rx="4"/><circle cx="16" cy="12" r="2"/>',
+    sensor: '<path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/>',
+    binary_sensor: '<circle cx="12" cy="12" r="3"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M4.9 4.9a10 10 0 0 0 0 14.2M19.1 4.9a10 10 0 0 1 0 14.2"/>',
+    media_player: '<rect x="4" y="3" width="16" height="18" rx="2"/><circle cx="12" cy="14" r="4"/><circle cx="12" cy="7" r="1"/>',
+    climate: '<path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9"/>',
+    other: '<rect x="5" y="5" width="14" height="14" rx="3"/><path d="M9 12h6"/>',
+  };
+  function tile(device) {
+    const node = document.createElement(device.camera ? "button" : "div");
+    node.className = "tile"; if (device.camera) node.type = "button";
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("viewBox", "0 0 24 24"); icon.innerHTML = ICONS[device.domain] || ICONS.other;  // static strings from ICONS only
+    const name = document.createElement("span"); name.className = "tile-name"; name.textContent = device.name;
+    const state = document.createElement("span"); state.className = "tile-state";
+    state.textContent = device.camera ? "Tap to watch · " + device.state : device.state;
+    node.append(icon, name, state);
+    if (device.camera) node.onclick = () => { devicesDialog.close(); showCamera(device.camera); };
+    return node;
+  }
+  async function refreshDevices() {
+    $("devices-note").textContent = "Loading…"; $("devices-grid").replaceChildren();
+    try {
+      const info = await (await fetch("/devices", { cache: "no-store" })).json();
+      $("devices-note").textContent = info.error ? "Home Assistant: " + info.error : info.devices.length ? "" : "No devices yet.";
+      $("devices-grid").replaceChildren(...info.devices.map(tile));
+    } catch (error) { $("devices-note").textContent = "Cannot reach the app: " + error; }
+  }
+  $("open-devices").onclick = () => { devicesDialog.showModal(); refreshDevices(); };
+  $("close-devices").onclick = () => devicesDialog.close();
+  devicesDialog.addEventListener("click", (e) => { if (e.target === devicesDialog) devicesDialog.close(); });
+
   function handle(event) {
     switch (event.type) {
+      case "camera":
+        if (event.action === "show") showCamera(event.name); else hideCamera();
+        break;
       case "score": {
         lastScoreAt = Date.now();
         const score = event.score || 0, level = event.level || 0;

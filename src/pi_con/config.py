@@ -7,6 +7,12 @@ from pathlib import Path
 
 
 @dataclass(frozen=True)
+class Camera:
+    name: str  # what the owner says: "Montre la caméra <name>"
+    entity: str  # Home Assistant entity id, e.g. camera.rabbit
+
+
+@dataclass(frozen=True)
 class Settings:
     wakeword: str
     threshold: float
@@ -19,6 +25,12 @@ class Settings:
     stt_model_dir: str = "models/stt-fr"
     stt_threads: int = 2
     max_listen_seconds: float = 12.0
+    ha_url: str = "http://127.0.0.1:8123"
+    ha_token: str = ""
+    cameras: tuple[Camera, ...] = ()
+    skills_file: str = "config/skills.json"
+    needle_enabled: bool = True  # fallback for sentences no skill matched (needs cactus-needle)
+    skill_threshold: float = 0.8  # 0..1 similarity needed between what was heard and a skill phrase
     sample_rate: int = 16_000
     frame_samples: int = 1_280
 
@@ -28,9 +40,22 @@ def default_phrase(wakeword: str) -> str:
     return Path(wakeword).stem.replace("_", " ").replace("-", " ").title()
 
 
+def load_dotenv(path: str | Path = ".env") -> None:
+    """Export KEY=value lines from a .env file without overriding the real environment (systemd sets it on the Pi)."""
+    try:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for line in lines:
+        key, sep, value = line.partition("=")
+        if sep and key.strip() and not key.lstrip().startswith("#"):
+            os.environ.setdefault(key.strip(), value.strip())
+
+
 def load_settings(path: str | Path | None = None) -> Settings:
     config_path = Path(path or os.getenv("PI_CON_CONFIG", "config/settings.json"))
     data = json.loads(config_path.read_text(encoding="utf-8"))
+    load_dotenv(config_path.resolve().parent.parent / ".env")
     command = tuple(data.get("command", []))
     if not command:
         raise ValueError("config command must contain at least one program")
@@ -46,4 +71,13 @@ def load_settings(path: str | Path | None = None) -> Settings:
         stt_model_dir=str(data.get("stt_model_dir", "models/stt-fr")),
         stt_threads=int(data.get("stt_threads", 2)),
         max_listen_seconds=float(data.get("max_listen_seconds", 12.0)),
+        ha_url=str(data.get("home_assistant_url", "http://127.0.0.1:8123")).rstrip("/"),
+        ha_token=os.getenv("HA_TOKEN", ""),
+        skills_file=str(data.get("skills_file", "config/skills.json")),
+        skill_threshold=float(data.get("skill_threshold", 0.8)),
+        needle_enabled=bool(data.get("needle_enabled", True)),
+        cameras=tuple(
+            Camera(str(camera["name"]), str(camera["entity"]))
+            for camera in data.get("cameras", [])
+        ),
     )

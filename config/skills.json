@@ -1,0 +1,14 @@
+{
+  "skills": [
+    {
+      "name": "Voir la caméra rabbit",
+      "phrases": ["vidéo rabbit", "vidéo rabbite", "vidéo rabit", "montre la caméra rabbit", "caméra rabbit"],
+      "action": { "type": "camera", "camera": "rabbit" }
+    },
+    {
+      "name": "Fermer la caméra",
+      "phrases": ["ferme la vidéo", "ferme la caméra", "ferme la video", "cache la caméra"],
+      "action": { "type": "camera_hide" }
+    }
+  ]
+}

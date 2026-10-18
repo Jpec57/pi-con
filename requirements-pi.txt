@@ -9,3 +9,5 @@ scikit-learn>=1,<2
 requests>=2,<3
 tqdm>=4,<5
 sherpa-onnx>=1.10
+websocket-client>=1.7
+cactus-needle>=3,<4

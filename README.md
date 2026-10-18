@@ -49,6 +49,35 @@ Config keys in `config/settings.json`: `wakeword` (`hey_jarvis`, `alexa`, `hey_m
 
 Once running, open `http://<host>:8080` (`localhost` on the Mac, the Pi's IP on the Pi). It shows the microphone level, the wake word score against the threshold, the last thing heard, and a history. After the wake word (or when you press **Speak**), what you say is transcribed in French and typed out live in the "Last heard" box. Turn it off with `"stt_enabled": false` in `config/settings.json`; the model (~120 MB) is fetched by `pi-con --download-models`. There is no login: keep it on your LAN and never port-forward it. Change the port with `"ui_port"` in `config/settings.json`; `null` disables the UI.
 
+## Cameras and Home Assistant
+
+Put the camera URL in `.env` (`CAMERA_RABBIT_RTSP=rtsp://user:pass@ip:554/stream2`), the admin login (`HA_ADMIN_USER`, `HA_ADMIN_PASSWORD`), then after a deploy run `./scripts/install-ha.sh`: it installs Home Assistant Core natively on the Pi, registers each `CAMERA_<NAME>_RTSP` as `camera.<name>` and stores the access token on the Pi. List the cameras in `config/settings.json` (`cameras`: `name`, `entity`). Open the grid button in the UI to see every Home Assistant device and click a camera. Home Assistant itself is at `http://<pi>:8123`.
+
+## Skills: what you say -> what happens
+
+`config/skills.json` maps spoken phrases to actions. Add a skill, deploy (or edit the file on the Pi: it is reloaded when it changes, no restart), say the phrase:
+
+```json
+{ "skills": [
+  { "name": "Voir la caméra rabbit",
+    "phrases": ["vidéo rabbit", "vidéo rabbite", "vidéo rabit"],
+    "action": { "type": "camera", "camera": "rabbit" } },
+  { "name": "Salon allumé",
+    "phrases": ["allume le salon"],
+    "action": { "type": "ha_service", "service": "light.turn_on", "entity_id": "light.salon" } },
+  { "name": "Redémarrer le micro", "phrases": ["relance le micro"],
+    "action": { "type": "command", "command": ["/usr/bin/logger", "hello"] } }
+] }
+```
+
+Action types: `camera` (`camera`: a name from `cameras` in settings), `camera_hide`, `command` (a list, run without a shell), `ha_service` (`service` like `light.turn_on`, optional `entity_id` and `data`; needs Home Assistant).
+
+Matching is fuzzy: extra words are ignored and a misheard letter or two still triggers (`skill_threshold` in `config/settings.json`, default 0.8; lower it if the speech-to-text is poor, but not too far or other speech will trigger skills). **Since the speech-to-text is unreliable, add every spelling you see in the UI as another phrase.** Check a sentence without a microphone: `pi-con --test-skill "video rabit"` prints the closest skills and scores. A deploy overwrites `config/skills.json` on the Pi, so keep the master copy in the repo.
+
+### Needle fallback (sentences no skill matched)
+
+When no phrase matches, the sentence goes to [cactus-needle](https://github.com/cactus-compute/needle), a tiny local function-calling model (~100 ms on the Pi, French works, nothing leaves the device; telemetry is switched off in code). So "peux-tu me montrer rabbit s'il te plaît" opens the camera without being listed. It can only use what you expose: show/hide camera, and skills marked `"fallback": true` (with an optional `"description"` and `"fallback_words"`). Its answer is never trusted blindly: a camera name must fuzzy-match a real camera, and the sentence must contain a word related to the tool (the model otherwise says yes to chit-chat). Turn it off with `"needle_enabled": false` in `config/settings.json`. The model (~35 MB) is fetched by `pi-con --download-models` (run by `deploy.sh`).
+
 ## Deploy to the Pi (Pi 4 or Pi 5, 64-bit OS)
 
 One-time setup on the Pi: SSH enabled, your key authorised (`ssh-copy-id pi@raspberrypi.local`), a USB microphone plugged in (`arecord -l` lists it). Your user needs `sudo` (the default Pi user has it).

@@ -11,6 +11,8 @@ from .config import load_settings
 from .debug import DebugState, RingLogHandler
 from .events import EventBus
 from .listener import WakeWordListener
+from .ha import HomeAssistant
+from .router import Router
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,7 @@ def main() -> None:
     parser.add_argument("--config", help="Path to a JSON settings file")
     parser.add_argument("--list-devices", action="store_true", help="Print audio inputs and exit")
     parser.add_argument("--verbose", action="store_true", help="Log live wake word scores to help tune the threshold")
+    parser.add_argument("--test-skill", metavar="TEXT", help="Show which skill a spoken sentence would trigger, then exit (no microphone needed)")
     parser.add_argument("--download-models", action="store_true", help="Download the configured model and exit")
     parser.add_argument(
         "--wav",
@@ -41,12 +44,24 @@ def main() -> None:
     log_ring = RingLogHandler()
     logging.getLogger().addHandler(log_ring)
     settings = load_settings(args.config)
+    if args.test_skill is not None:
+        from .skills import load_skills, rank
+        ranked = rank(args.test_skill, load_skills(settings.skills_file))[:3]
+        for match in ranked:
+            verdict = "TRIGGERS" if match.score >= settings.skill_threshold else "no"
+            print(f"{match.score:.2f}  {verdict:8}  {match.skill.name}  (closest phrase: {match.phrase!r})")
+        print(f"threshold {settings.skill_threshold:.2f}; heard as {args.test_skill!r}")
+        return
     if args.download_models:
         from .models import ensure_models
         ensure_models(settings.wakeword)
         if settings.stt_enabled:
             from .stt import ensure_stt_model
             ensure_stt_model(settings.stt_model_dir)
+        if settings.needle_enabled:
+            from .fallback import NeedleFallback
+            from .skills import load_skills
+            NeedleFallback({camera.name: camera.entity for camera in settings.cameras}).warm_up(load_skills(settings.skills_file))
         return
 
     wav_frames = None
@@ -63,6 +78,13 @@ def main() -> None:
     if settings.stt_enabled:
         from .stt import Transcriber
         transcriber = Transcriber(settings.stt_model_dir, settings.stt_threads)
+    ha = HomeAssistant(settings.ha_url, settings.ha_token)
+    cameras = {camera.name: camera.entity for camera in settings.cameras}
+    fallback = None
+    if settings.needle_enabled:
+        from .fallback import NeedleFallback
+        fallback = NeedleFallback(cameras)
+    Router(bus, settings.skills_file, cameras, ha, settings.skill_threshold, fallback).start()
     listener = WakeWordListener(
         settings, lambda: run_command(settings.command), bus=bus, wav_frames=wav_frames, transcriber=transcriber, debug=debug,
     )
@@ -72,6 +94,8 @@ def main() -> None:
             bus, settings.ui_port, on_listen=listener.request_listen,
             actions={"restart-audio": listener.request_audio_restart, "restart-app": restart_process},
             wake_phrase=settings.wake_phrase,
+            ha=ha,
+            cameras=cameras,
             debug_info=lambda: {**debug.snapshot(), "log": list(log_ring.lines)},
         )
     try:
