@@ -113,7 +113,6 @@
       "name": "Activer la voix",
       "phrases": [
         "active la voix",
-        "parle moi",
         "réponds à voix haute"
       ],
       "action": {
