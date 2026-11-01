@@ -13,3 +13,4 @@ websocket-client>=1.7
 cactus-needle>=3,<4
 anthropic>=1,<2
 openai>=2,<4
+piper-tts>=1.3

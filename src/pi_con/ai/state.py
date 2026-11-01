@@ -84,8 +84,6 @@ class AiState:
 
     def reconcile(self) -> None:
         """Keep the mode and provider valid after keys were added or removed."""
-        if self.mode and not self.configured():
-            self.mode = False
         if self.provider not in self.configured() and self.configured():
             self.provider = self.configured()[0]
 
@@ -94,9 +92,7 @@ class AiState:
         self._changed()
 
     def set_mode(self, on: bool) -> bool:
-        """False (and no change) when asked to turn on without any API key."""
-        if on and not self.configured():
-            return False
+        """Always allowed: without a key, the chat says so when something is asked."""
         self.mode = on
         self._changed()
         return True

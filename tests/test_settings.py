@@ -56,14 +56,14 @@ def test_unknown_names_are_refused_and_no_path_means_no_disk(tmp_path):
 def test_adding_and_removing_a_key_updates_modes_and_provider(tmp_path):
     store = SecretStore(None)
     state = AiState(EventBus(), AI, tmp_path / "ai.json", store)
-    assert state.configured() == [] and state.set_mode(True) is False
+    assert state.configured() == [] and state.set_mode(True) is True
     store.set("OPENAI_API_KEY", OTHER)
     state.keys_changed()
     assert state.configured() == ["openai"] and state.provider == "openai"
     assert state.set_mode(True)
     store.clear("OPENAI_API_KEY")
     state.keys_changed()
-    assert state.mode is False  # the last key is gone: AI mode switches itself off
+    assert state.mode is True  # AI mode stays on; the chat reports the missing key when asked
 
 
 def test_model_options_override_settings_and_persist(tmp_path):

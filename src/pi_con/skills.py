@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 PROVIDERS = ("openai", "anthropic")
-CONTROL_TYPES = ("ai_mode", "ai_provider")  # always handled locally, even in AI mode, so the owner can leave it by voice
+CONTROL_TYPES = ("ai_mode", "ai_provider", "tts_mode", "reply")  # always handled locally, even in AI mode, so the owner can leave it by voice
 ACTION_FIELDS = {  # action type -> required fields
     "camera": ("camera",),
     "camera_hide": (),
@@ -16,6 +16,8 @@ ACTION_FIELDS = {  # action type -> required fields
     "ha_service": ("service",),
     "ai_mode": ("mode",),
     "ai_provider": ("provider",),
+    "tts_mode": ("mode",),
+    "reply": ("text",),  # a canned answer: a sentence, or a list of variants of which one is picked at random
 }
 
 
@@ -29,6 +31,7 @@ class Skill:
     fallback_words: str = ""  # extra words (besides the phrases') one of which must be heard for Needle to trigger it
     mcp: bool = False  # exposed as a tool to remote assistants (Claude / ChatGPT apps) through the MCP server
     ai: bool = False  # exposed as a tool to the LLM in AI mode
+    say: str = ""  # sentence read aloud after the action ran (needs the spoken replies option)
 
 
 @dataclass(frozen=True)
@@ -65,11 +68,17 @@ def parse_skills(data: object) -> tuple[Skill, ...]:
             raise ValueError(f"{label}: 'command' must be a list of strings, e.g. [\"/usr/bin/logger\", \"hello\"]")
         if action["type"] == "ai_mode" and action["mode"] not in ("on", "off", "toggle"):
             raise ValueError(f"{label}: 'mode' must be on, off or toggle")
+        if action["type"] == "reply":
+            variants = [action["text"]] if isinstance(action["text"], str) else action["text"]
+            if not (isinstance(variants, list) and variants and all(isinstance(v, str) and v.strip() for v in variants)):
+                raise ValueError(f"{label}: 'text' must be a sentence or a non-empty list of sentences")
+        if action["type"] == "tts_mode" and action["mode"] not in ("on", "off"):
+            raise ValueError(f"{label}: 'mode' must be on or off")
         if action["type"] == "ai_provider" and action["provider"] not in PROVIDERS:
             raise ValueError(f"{label}: 'provider' must be one of {', '.join(PROVIDERS)}")
         if action["type"] == "ha_service" and action["service"].count(".") != 1:
             raise ValueError(f"{label}: 'service' must look like light.turn_on")
-        skills.append(Skill(str(raw["name"]), tuple(phrases), action, bool(raw.get("fallback", False)), str(raw.get("description", "")), str(raw.get("fallback_words", "")), bool(raw.get("mcp", False)), bool(raw.get("ai", False))))
+        skills.append(Skill(str(raw["name"]), tuple(phrases), action, bool(raw.get("fallback", False)), str(raw.get("description", "")), str(raw.get("fallback_words", "")), bool(raw.get("mcp", False)), bool(raw.get("ai", False)), str(raw.get("say", ""))))
     return tuple(skills)
 
 

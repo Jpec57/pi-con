@@ -44,6 +44,7 @@ class WakeWordListener:
         wav_frames: list[np.ndarray] | None = None,
         transcriber: Transcriber | None = None,
         debug: DebugState | None = None,
+        muted: Callable[[], bool] | None = None,
     ) -> None:
         self.settings = settings
         self.on_wake = on_wake
@@ -57,7 +58,9 @@ class WakeWordListener:
         self._stall_streak = 0
         self._restart_audio = threading.Event()
         self.transcriber = transcriber
+        self.muted = muted or (lambda: False)  # true while the assistant speaks: it must not hear itself
         self._listen_requested = threading.Event()
+        self._followup_wait = 0.0
 
     def request_audio_restart(self) -> bool:
         """Ask the loop to close and reopen the microphone (used by the UI)."""
@@ -68,6 +71,14 @@ class WakeWordListener:
         """Start transcribing now, as if the wake word had just been heard (used by the UI button)."""
         if self.transcriber is None:
             return False
+        self._listen_requested.set()
+        return True
+
+    def request_followup(self, seconds: float) -> bool:
+        """Listen for `seconds` for a follow-up sentence without the wake word (after an answer, for a real conversation)."""
+        if self.transcriber is None or seconds <= 0:
+            return False
+        self._followup_wait = seconds
         self._listen_requested.set()
         return True
 
@@ -202,6 +213,7 @@ class WakeWordListener:
             utterance: Utterance | None = None
             utterance_started = 0.0
             last_text = ""
+            wait = 0.0  # > 0 while waiting for a follow-up: how long to wait for the first word
             while True:
                 try:
                     frame = self.frames.get(timeout=1.0)
@@ -214,9 +226,13 @@ class WakeWordListener:
                     continue
                 if self.capture_rate != self.settings.sample_rate:  # resample here, not in the audio callback
                     frame = to_model_rate(frame, self.capture_rate, self.settings.sample_rate)
+                if utterance is None and self.muted():
+                    self.model.reset()
+                    continue
                 now = time.monotonic()
                 if self.transcriber is not None and utterance is None and self._listen_requested.is_set():
                     utterance, utterance_started, last_text = self.transcriber.start(), now, ""
+                    wait, self._followup_wait = self._followup_wait, 0.0
                     self._announce_capture(True)
                 self._listen_requested.clear()
                 if utterance is not None:
@@ -224,13 +240,14 @@ class WakeWordListener:
                     if text != last_text:
                         last_text = text
                         self.bus.publish("partial", persist=False, text=text)
-                    if finished or now - utterance_started >= self.settings.max_listen_seconds:
+                    waiting = bool(wait) and not last_text  # a follow-up nobody has started yet: silence is not the end
+                    if (finished and not waiting) or now - utterance_started >= self.settings.max_listen_seconds + wait or (waiting and now - utterance_started >= wait):
                         if last_text:
                             logger.info("Heard: %s", last_text)
                             self.bus.publish("transcript", text=last_text)
                         else:
                             logger.info("Nothing heard")
-                        utterance = None
+                        utterance, wait = None, 0.0
                         self._announce_capture(False)
                         self.model.reset()
                     continue

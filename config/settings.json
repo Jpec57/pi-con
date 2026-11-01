@@ -19,9 +19,16 @@
   "skills_file": "config/skills.json",
   "skill_threshold": 0.8,
   "needle_enabled": true,
+  "followup_seconds": 10,
   "mcp_port": 8765,
+  "tts": {
+    "enabled": false,
+    "voice": "fr_FR-siwis-medium",
+    "voice_dir": "models/tts-fr",
+    "output_device": "pulse"
+  },
   "ai": {
-    "default_provider": "anthropic",
+    "default_provider": "openai",
     "history_turns": 6,
     "max_output_tokens": 1024,
     "cloud_stt": true,

@@ -24,6 +24,8 @@ SYSTEM = (
 def make_provider(name: str, state: AiState):
     """Build the provider client from the key (UI or .env) and the model (UI or settings.json)."""
     max_tokens = int(state.settings.get("max_output_tokens", 1024))
+    if not state.store.get(KEY_ENV[name]):
+        raise ProviderError(f"no API key: set {KEY_ENV[name]} in .env or in the settings panel")
     return (AnthropicProvider if name == "anthropic" else OpenAIProvider)(state.store.get(KEY_ENV[name]), state.model(name), max_tokens)
 
 
@@ -68,8 +70,10 @@ class AiAssistant:
             except Exception as error:  # the model sees the failure and can say so
                 return f"error: {error}"
 
+        client = None
         try:
-            reply = self._provider(name).run(
+            client = self._provider(name)
+            reply = client.run(
                 SYSTEM, list(self._history), text, tools, execute,
                 lambda chunk: self.bus.publish("ai_delta", persist=False, text=chunk, provider=name),
             )
@@ -83,6 +87,20 @@ class AiAssistant:
             return ""
         self._last = time.monotonic()
         self._history.append((text, reply))
+        usage = self._usage(client, name)
         if reply:  # a turn that only used a tool has nothing to say (the tool already posted its own notice)
-            self.bus.publish("ai_reply", text=reply, provider=name)
+            self.bus.publish("ai_reply", text=reply, provider=name, **({"usage": usage} if usage else {}))
+        elif usage:  # it still cost tokens
+            self.bus.publish("status", state="info", message=f"AI ({name}): {usage['input']} in / {usage['output']} out tokens")
         return reply
+
+    def _usage(self, client, name: str) -> dict:
+        """Tokens in/out of the last sentence, plus its price in USD when `price_per_mtok` is set for the provider in settings.json."""
+        counted = getattr(client, "last_usage", None)
+        if not counted or not (counted.get("input") or counted.get("output")):
+            return {}
+        usage = {"input": int(counted["input"]), "output": int(counted["output"])}
+        price = self.state.settings.get("providers", {}).get(name, {}).get("price_per_mtok")  # {"input": 3, "output": 15}: USD per million tokens
+        if isinstance(price, dict) and price.get("input") is not None and price.get("output") is not None:
+            usage["cost"] = round((usage["input"] * float(price["input"]) + usage["output"] * float(price["output"])) / 1e6, 6)
+        return usage

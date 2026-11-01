@@ -37,8 +37,10 @@ class UiServer(ThreadingHTTPServer):
         cameras: dict[str, str] | None = None,
         ai_state=None,
         mcp=None,
+        speaker=None,
     ) -> None:
         super().__init__(address, _Handler)
+        self.speaker = speaker  # tts.Speaker or None
         self.ai_state = ai_state
         self.mcp = mcp  # McpServer or None
         self.ha = ha
@@ -71,6 +73,9 @@ class _Handler(BaseHTTPRequestHandler):
         elif path == "/ai":
             state = self.server.ai_state
             self._send(200, "application/json", json.dumps(state.snapshot() if state else {"mode": False, "providers": []}).encode())
+        elif path == "/tts":
+            speaker = self.server.speaker
+            self._send(200, "application/json", json.dumps(speaker.snapshot() if speaker else {"enabled": False, "voice": ""}).encode())
         elif path == "/devices":
             self._devices()
         elif path == "/static/hls.min.js":
@@ -161,7 +166,7 @@ class _Handler(BaseHTTPRequestHandler):
             if state.set_mode(on):
                 self._send(200, "application/json", json.dumps(state.snapshot()).encode())
             else:
-                self._send(409, "text/plain; charset=utf-8", b"No API key configured: add OPENAI_API_KEY or ANTHROPIC_API_KEY to .env on the Pi")
+                self._send(409, "text/plain; charset=utf-8", b"Cannot change the AI mode")
         elif route == "provider":
             if state.set_provider(query.get("name", [""])[0]):
                 self._send(200, "application/json", json.dumps(state.snapshot()).encode())
@@ -170,10 +175,28 @@ class _Handler(BaseHTTPRequestHandler):
         else:
             self._send(404, "text/plain; charset=utf-8", b"not found")
 
+    def _tts_post(self, route: str, query: dict[str, list[str]]) -> None:
+        speaker = self.server.speaker
+        if speaker is None:
+            self._send(404, "text/plain; charset=utf-8", b"Spoken replies are not available")
+        elif route == "mode":
+            speaker.set_enabled(query.get("on", ["0"])[0] == "1")
+            self._send(200, "application/json", json.dumps(speaker.snapshot()).encode())
+        elif route == "test":
+            speaker.say("Bonjour, je suis Jarvis. Je peux maintenant te répondre à voix haute.", force=True)
+            self._send(202, "text/plain; charset=utf-8", b"ok")
+        elif route == "stop":
+            speaker.stop()
+            self._send(202, "text/plain; charset=utf-8", b"ok")
+        else:
+            self._send(404, "text/plain; charset=utf-8", b"not found")
+
     def do_POST(self) -> None:  # noqa: N802 (stdlib naming)
         parts = urlsplit(self.path)
         if not self._same_origin():
             self._send(403, "text/plain; charset=utf-8", b"cross-site request refused")
+        elif parts.path.startswith("/tts/"):
+            self._tts_post(parts.path[len("/tts/"):], parse_qs(parts.query))
         elif parts.path.startswith("/settings/"):
             self._settings_post(parts.path[len("/settings/"):])
         elif parts.path.startswith("/ai/"):
@@ -281,9 +304,10 @@ def start_ui(
     cameras: dict[str, str] | None = None,
     ai_state=None,
     mcp=None,
+    speaker=None,
 ) -> UiServer:
     """Serve the UI on a background thread. Bound to all interfaces so other devices on the LAN can open it."""
-    server = UiServer((host, port), bus, on_listen, actions, debug_info, wake_phrase, ha, cameras, ai_state, mcp)
+    server = UiServer((host, port), bus, on_listen, actions, debug_info, wake_phrase, ha, cameras, ai_state, mcp, speaker)
     threading.Thread(target=server.serve_forever, name="ui", daemon=True).start()
     logger.info("UI on http://localhost:%d", server.server_address[1])
     return server

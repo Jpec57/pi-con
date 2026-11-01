@@ -12,7 +12,8 @@
       "action": {
         "type": "camera",
         "camera": "rabbit"
-      }
+      },
+      "say": "Voici la caméra rabbit."
     },
     {
       "name": "Fermer la caméra",
@@ -24,7 +25,8 @@
       ],
       "action": {
         "type": "camera_hide"
-      }
+      },
+      "say": "C'est fermé."
     },
     {
       "name": "Mode IA",
@@ -79,6 +81,155 @@
       "action": {
         "type": "ai_provider",
         "provider": "openai"
+      }
+    },
+    {
+      "name": "Activer la voix",
+      "phrases": [
+        "active la voix",
+        "parle moi",
+        "réponds à voix haute",
+        "mode vocal"
+      ],
+      "action": {
+        "type": "tts_mode",
+        "mode": "on"
+      }
+    },
+    {
+      "name": "Couper la voix",
+      "phrases": [
+        "coupe la voix",
+        "tais toi",
+        "désactive la voix"
+      ],
+      "action": {
+        "type": "tts_mode",
+        "mode": "off"
+      }
+    },
+    {
+      "name": "Bonjour",
+      "phrases": [
+        "bonjour",
+        "salut",
+        "coucou",
+        "bonsoir",
+        "hello"
+      ],
+      "action": {
+        "type": "reply",
+        "text": [
+          "Bonjour !",
+          "Salut ! Je t'écoute.",
+          "Coucou, que puis-je faire pour toi ?"
+        ]
+      }
+    },
+    {
+      "name": "Comment ça va",
+      "phrases": [
+        "comment ça va",
+        "comment vas-tu",
+        "comment tu vas",
+        "salut ça va",
+        "tu vas bien"
+      ],
+      "action": {
+        "type": "reply",
+        "text": [
+          "Je vais bien, merci ! Et toi ?",
+          "Très bien, et toi ?",
+          "Au top ! Et de ton côté ?"
+        ]
+      }
+    },
+    {
+      "name": "Ça va bien",
+      "phrases": [
+        "moi ça va bien",
+        "je vais bien",
+        "ça va très bien",
+        "tout va bien"
+      ],
+      "action": {
+        "type": "reply",
+        "text": [
+          "Super, ça me fait plaisir !",
+          "Tant mieux !"
+        ]
+      }
+    },
+    {
+      "name": "Merci",
+      "phrases": [
+        "merci",
+        "merci beaucoup",
+        "merci jarvis"
+      ],
+      "action": {
+        "type": "reply",
+        "text": [
+          "Avec plaisir !",
+          "De rien !",
+          "Je t'en prie."
+        ]
+      }
+    },
+    {
+      "name": "Qui es-tu",
+      "phrases": [
+        "qui es-tu",
+        "tu es qui",
+        "comment tu t'appelles",
+        "présente-toi"
+      ],
+      "action": {
+        "type": "reply",
+        "text": "Je suis Jarvis, l'assistant vocal de la maison, installé sur un Raspberry Pi."
+      }
+    },
+    {
+      "name": "Quelle heure",
+      "phrases": [
+        "quelle heure est-il",
+        "il est quelle heure",
+        "donne-moi l'heure",
+        "l'heure"
+      ],
+      "action": {
+        "type": "reply",
+        "text": "Il est {heure}."
+      }
+    },
+    {
+      "name": "Quelle date",
+      "phrases": [
+        "quel jour sommes-nous",
+        "on est quel jour",
+        "quelle est la date",
+        "la date"
+      ],
+      "action": {
+        "type": "reply",
+        "text": "Nous sommes {date}."
+      }
+    },
+    {
+      "name": "Au revoir",
+      "phrases": [
+        "au revoir",
+        "à bientôt",
+        "bonne nuit",
+        "à plus tard"
+      ],
+      "action": {
+        "type": "reply",
+        "text": [
+          "À bientôt !",
+          "Au revoir, à tout à l'heure.",
+          "Bonne nuit !"
+        ]
       }
     }
   ]

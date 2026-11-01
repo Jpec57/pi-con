@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import random
 import threading
+from datetime import datetime
 from pathlib import Path
 
 from .commands import run_command
@@ -12,6 +14,17 @@ from .skills import CONTROL_TYPES, Skill, best_match, load_skills, rank
 
 logger = logging.getLogger(__name__)
 
+DAYS = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
+MONTHS = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre")
+
+
+def canned_reply(action: dict, now: datetime | None = None) -> str:
+    """One of the variants of a `reply` action. {heure} and {date} become the current time and date, in French."""
+    now = now or datetime.now()
+    text = random.choice([action["text"]] if isinstance(action["text"], str) else action["text"])
+    hour = "midi" if (now.hour, now.minute) == (12, 0) else "minuit" if (now.hour, now.minute) == (0, 0) else f"{now.hour} heures" + (f" {now.minute:02d}" if now.minute else "")
+    return text.replace("{heure}", hour).replace("{date}", f"{DAYS[now.weekday()]} {now.day} {MONTHS[now.month - 1]}")
+
 
 class Router:
     """Turns transcripts into actions by matching them against the skills in the skills file.
@@ -19,7 +32,7 @@ class Router:
     The file is re-read when it changes, so skills can be added on the Pi without restarting. LLM fallback comes later.
     """
 
-    def __init__(self, bus: EventBus, skills_path: str | Path, cameras: dict[str, str], ha: HomeAssistant | None, threshold: float, fallback: NeedleFallback | None = None, ai=None) -> None:
+    def __init__(self, bus: EventBus, skills_path: str | Path, cameras: dict[str, str], ha: HomeAssistant | None, threshold: float, fallback: NeedleFallback | None = None, ai=None, speaker=None) -> None:
         self.bus = bus
         self.skills_path = Path(skills_path)
         self.cameras = cameras
@@ -27,6 +40,7 @@ class Router:
         self.threshold = threshold
         self.fallback = fallback
         self.ai = ai  # AiAssistant or None
+        self.speaker = speaker  # tts.Speaker or None
         self._skills: tuple[Skill, ...] = ()
         self._loaded_mtime = -1.0
 
@@ -80,14 +94,17 @@ class Router:
                     self._notify(message)
                     return message
                 self.bus.publish("camera", persist=False, action="show", name=action["camera"])
+                self._say(skill)
                 return f"Camera {action['camera']} is now shown on the Pi screen"
             if action["type"] == "camera_hide":
                 self.bus.publish("camera", persist=False, action="hide")
+                self._say(skill)
                 return "Camera closed"
             if action["type"] in CONTROL_TYPES:
                 return self._control(action)
             if action["type"] == "command":
                 run_command(action["command"])
+                self._say(skill)
                 return f"Started: {skill.name}"
             if action["type"] == "ha_service":
                 if self.ha is None:
@@ -96,6 +113,7 @@ class Router:
                 if action.get("entity_id"):
                     data["entity_id"] = action["entity_id"]
                 self.ha.call_service(action["service"], data)
+                self._say(skill)
                 return f"Done: {skill.name}"
         except HomeAssistantError as error:
             logger.error("Skill '%s' failed: %s", skill.name, error)
@@ -103,16 +121,31 @@ class Router:
             return f"Failed: {error}"
         return f"Nothing to do for {skill.name}"
 
+    def _say(self, skill: Skill) -> None:
+        if skill.say:
+            self.bus.publish("say", persist=False, text=skill.say)  # read aloud by the Speaker when the option is on
+
     def _control(self, action: dict) -> str:
-        if self.ai is None:
+        if action["type"] == "reply":
+            message = canned_reply(action)
+            self.bus.publish("ai_reply", text=message, provider="local")  # shown as an answer and read aloud when voice is on
+            return message
+        if action["type"] == "tts_mode":
+            if self.speaker is None:
+                message = "Voix indisponible"
+            else:
+                on = action["mode"] == "on"
+                self.speaker.set_enabled(on)
+                message = "Voix activée" if on else "Voix désactivée"
+                if on:
+                    self.speaker.say(message)
+        elif self.ai is None:
             message = "AI mode is not available"
         elif action["type"] == "ai_mode":
             state = self.ai.state
             on = (not state.mode) if action["mode"] == "toggle" else action["mode"] == "on"
-            if state.set_mode(on):
-                message = f"Mode IA {'activé' if on else 'désactivé'} ({state.provider})" if on else "Mode IA désactivé"
-            else:
-                message = "Mode IA impossible: aucune clé API (OPENAI_API_KEY ou ANTHROPIC_API_KEY dans .env)"
+            state.set_mode(on)
+            message = f"Mode IA activé ({state.provider})" if on else "Mode IA désactivé"
         else:
             message = f"IA: {action['provider']}" if self.ai.state.set_provider(action["provider"]) else f"{action['provider']} n'est pas configuré (clé API manquante)"
         self._notify(message)

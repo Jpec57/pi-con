@@ -32,6 +32,7 @@ def main() -> None:
     parser.add_argument("--test-skill", metavar="TEXT", help="Show which skill a spoken sentence would trigger, then exit (no microphone needed)")
     parser.add_argument("--ask", metavar="TEXT", help="Ask the AI (needs an API key) as if it was said: prints the answer and the tool calls WITHOUT running them")
     parser.add_argument("--provider", choices=("openai", "anthropic"), help="Provider for --ask (default: the saved one)")
+    parser.add_argument("--say", metavar="TEXT", help="Speak TEXT with the configured voice and speaker, then exit (tests the spoken replies)")
     parser.add_argument("--download-models", action="store_true", help="Download the configured model and exit")
     parser.add_argument(
         "--wav",
@@ -78,12 +79,23 @@ def main() -> None:
             if event["type"] == "status":
                 print(event["message"])
         return
+    tts_settings = settings.tts or {}
+    voice = str(tts_settings.get("voice", "fr_FR-siwis-medium"))
+    voice_dir = str(tts_settings.get("voice_dir", "models/tts-fr"))
+    if args.say is not None:
+        from .tts import PiperSynthesizer, play_sound, clean_for_speech
+        audio, rate = PiperSynthesizer(voice_dir, voice)(clean_for_speech(args.say))
+        play_sound(audio, rate, tts_settings.get("output_device"))
+        return
     if args.download_models:
         from .models import ensure_models
         ensure_models(settings.wakeword)
         if settings.stt_enabled:
             from .stt import ensure_stt_model
             ensure_stt_model(settings.stt_model_dir)
+        if tts_settings.get("download", True):
+            from .tts import ensure_voice
+            ensure_voice(voice_dir, voice)
         if settings.needle_enabled:
             from .fallback import NeedleFallback
             from .skills import load_skills
@@ -128,7 +140,12 @@ def main() -> None:
     if settings.needle_enabled:
         from .fallback import NeedleFallback
         fallback = NeedleFallback(cameras)
-    router = Router(bus, settings.skills_file, cameras, ha, settings.skill_threshold, fallback)
+    from .tts import PiperSynthesizer, Speaker
+    speaker = Speaker(
+        bus, PiperSynthesizer(voice_dir, voice), enabled=bool(tts_settings.get("enabled", False)),
+        output_device=tts_settings.get("output_device"), voice=voice,
+    )
+    router = Router(bus, settings.skills_file, cameras, ha, settings.skill_threshold, fallback, speaker=speaker)
     from .ai.conversation import AiAssistant
     from .tools import build_tools as build_ai_tools
     router.ai = AiAssistant(
@@ -136,14 +153,18 @@ def main() -> None:
         history_turns=int((settings.ai or {}).get("history_turns", 6)),
     )
     router.start()
+    speaker.start()
     ai_state.announce()
+    speaker.announce()
     mcp_server = None
     if settings.mcp_port is not None:
         from .mcp import build_tools, start_mcp
         mcp_server = start_mcp(settings.mcp_port, store.get("MCP_TOKEN"), lambda: build_tools(router, cameras, ha, router.skills, "mcp"))
     listener = WakeWordListener(
-        settings, lambda: run_command(settings.command), bus=bus, wav_frames=wav_frames, transcriber=transcriber, debug=debug,
+        settings, lambda: run_command(settings.command), bus=bus, wav_frames=wav_frames, transcriber=transcriber, debug=debug, muted=speaker.busy,
     )
+    if settings.followup_seconds > 0:
+        speaker.after_reply = lambda: listener.request_followup(settings.followup_seconds)
     if settings.ui_port is not None:
         from .ui import start_ui
         start_ui(
@@ -151,7 +172,7 @@ def main() -> None:
             actions={"restart-audio": listener.request_audio_restart, "restart-app": restart_process},
             wake_phrase=settings.wake_phrase,
             ha=ha,
-            ai_state=ai_state, mcp=mcp_server,
+            ai_state=ai_state, mcp=mcp_server, speaker=speaker,
             cameras=cameras,
             debug_info=lambda: {**debug.snapshot(), "log": list(log_ring.lines)},
         )

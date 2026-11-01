@@ -30,6 +30,7 @@ class AnthropicProvider:
 
     def run(self, system: str, past: list[tuple[str, str]], text: str, tools: list[Tool], execute: Execute, on_text: Callable[[str], None]) -> str:
         a = self._anthropic
+        self.last_usage = {"input": 0, "output": 0}  # tokens billed for this sentence, all tool round trips included
         messages: list[dict] = [m for user, reply in past for m in ({"role": "user", "content": user}, {"role": "assistant", "content": reply})]
         messages.append({"role": "user", "content": text})
         specs = [{"name": t.name, "description": t.description, "input_schema": t.schema} for t in tools]
@@ -43,6 +44,10 @@ class AnthropicProvider:
                     for chunk in stream.text_stream:
                         on_text(chunk)
                     final = stream.get_final_message()
+                usage = getattr(final, "usage", None)
+                if usage is not None:  # cached prompt tokens are input too (billed at another rate, but they were sent)
+                    self.last_usage["input"] += sum(int(getattr(usage, f, 0) or 0) for f in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
+                    self.last_usage["output"] += int(getattr(usage, "output_tokens", 0) or 0)
                 spoken += [block.text for block in final.content if block.type == "text"]
                 if final.stop_reason == "refusal":
                     return "Je ne peux pas répondre à ça."
@@ -78,6 +83,7 @@ class OpenAIProvider:
 
     def run(self, system: str, past: list[tuple[str, str]], text: str, tools: list[Tool], execute: Execute, on_text: Callable[[str], None]) -> str:
         o = self._openai
+        self.last_usage = {"input": 0, "output": 0}
         messages: list[dict] = [{"role": "system", "content": system}]
         messages += [m for user, reply in past for m in ({"role": "user", "content": user}, {"role": "assistant", "content": reply})]
         messages.append({"role": "user", "content": text})
@@ -86,11 +92,18 @@ class OpenAIProvider:
         try:
             for _ in range(MAX_STEPS):
                 stream = self.client.chat.completions.create(
-                    model=self.model, messages=messages, stream=True, max_completion_tokens=self.max_tokens, **({"tools": specs} if specs else {}),
+                    model=self.model, messages=messages, stream=True, max_completion_tokens=self.max_tokens,
+                    stream_options={"include_usage": True},  # the last chunk carries the token counts
+                    reasoning_effort="none",  # a spoken answer: speed over deliberation (and tools need it off on this model)
+                    **({"tools": specs} if specs else {}),
                 )
                 content: list[str] = []
                 calls: dict[int, dict] = {}
                 for chunk in stream:
+                    usage = getattr(chunk, "usage", None)
+                    if usage is not None:
+                        self.last_usage["input"] += int(getattr(usage, "prompt_tokens", 0) or 0)
+                        self.last_usage["output"] += int(getattr(usage, "completion_tokens", 0) or 0)
                     if not chunk.choices:
                         continue
                     delta = chunk.choices[0].delta

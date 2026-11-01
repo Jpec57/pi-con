@@ -201,7 +201,8 @@
     <h1>Pi-Con</h1>
     <div class="head-right">
       <select id="ai-provider" class="ai-provider" aria-label="AI provider" hidden></select>
-      <button id="ai-toggle" class="ai-toggle" type="button" aria-pressed="false" disabled title="AI mode">AI</button>
+      <button id="tts-toggle" class="ai-toggle" type="button" aria-pressed="false" title="Spoken replies">Voix</button>
+      <button id="ai-toggle" class="ai-toggle" type="button" aria-pressed="false" title="AI mode">AI</button>
       <span id="pill" class="pill">connecting…</span>
       <button id="open-devices" class="icon-btn" type="button" aria-label="Devices" title="Devices">
         <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
@@ -311,7 +312,7 @@
     }
   }
 
-  const AI_NAMES = { openai: "ChatGPT", anthropic: "Claude" };
+  const AI_NAMES = { openai: "ChatGPT", anthropic: "Claude", local: "Jarvis" };
   const stamp = (seconds) => new Date(seconds * 1000).toLocaleTimeString([], { hour12: false });
 
   // ---------- typewriter ----------
@@ -395,10 +396,9 @@
     const usable = ai.providers.filter((p) => p.configured);
     const toggle = $("ai-toggle");
     toggle.setAttribute("aria-pressed", String(ai.mode));
-    toggle.disabled = usable.length === 0 && !ai.mode;
-    toggle.title = usable.length
-      ? (ai.mode ? "AI mode on: what you say goes to " + AI_NAMES[ai.provider] + ". Tap to turn off." : "Turn on AI mode")
-      : "Add OPENAI_API_KEY or ANTHROPIC_API_KEY to .env on the Pi to use AI mode";
+    toggle.disabled = false;
+    toggle.title = ai.mode ? "AI mode on: what you say goes to " + AI_NAMES[ai.provider] + ". Tap to turn off."
+      : usable.length ? "Turn on AI mode" : "Turn on AI mode (no API key found yet: add one in the settings or in .env)";
     const select = $("ai-provider");
     select.hidden = usable.length < 2;
     select.replaceChildren(...usable.map((p) => new Option(AI_NAMES[p.name], p.name)));
@@ -413,11 +413,15 @@
     row.append(bubble, label); push(row);
     return (aiLive = { el: bubble, row, label, text: "" });
   }
+  function usageText(u) {  // tokens in / out of the question that produced this answer, and its price when settings.json has one
+    if (!u) return "";
+    return " · " + u.input + " in / " + u.output + " out" + (u.cost != null ? " · ≈ $" + u.cost.toFixed(4) : "");
+  }
   function aiText(event, final) {
     const bubble = aiBubble();
     bubble.text = final ? event.text : bubble.text + event.text;
     bubble.el.textContent = bubble.text;
-    bubble.label.textContent = (AI_NAMES[event.provider] || "AI") + (final ? " · " + stamp(event.time) : "");
+    bubble.label.textContent = (AI_NAMES[event.provider] || "AI") + (final ? " · " + stamp(event.time) + usageText(event.usage) : "");
     if (final) { bubble.el.classList.remove("live"); aiLive = null; }
     stickToBottom();
   }
@@ -425,6 +429,15 @@
     const reply = await fetch(path, { method: "POST" }).catch(() => null);
     if (!reply || !reply.ok) systemLine(null, reply ? await reply.text() : "Cannot reach the app", "error");
   }
+  // ---------- spoken replies ----------
+  let tts = { enabled: false };
+  function renderTts() {
+    const button = $("tts-toggle");
+    button.setAttribute("aria-pressed", String(tts.enabled));
+    button.title = tts.enabled ? "Spoken replies on. Tap to turn off." : "Turn on spoken replies";
+  }
+  $("tts-toggle").onclick = () => aiPost("/tts/mode?on=" + (tts.enabled ? 0 : 1));
+  fetch("/tts").then((r) => r.json()).then((info) => { tts = info; renderTts(); }).catch(() => {});
   $("ai-toggle").onclick = () => aiPost("/ai/mode?on=" + (ai.mode ? 0 : 1));
   $("ai-provider").onchange = (e) => aiPost("/ai/provider?name=" + encodeURIComponent(e.target.value));
   fetch("/ai").then((r) => r.json()).then((info) => { ai = { ...ai, ...info }; renderAi(); }).catch(() => {});
@@ -565,6 +578,7 @@
   function handle(event) {
     switch (event.type) {
       case "ai": ai = event; renderAi(); break;
+      case "tts": tts = event; renderTts(); break;
       case "ai_delta": aiText(event, false); break;
       case "ai_reply": aiText(event, true); break;
       case "camera":

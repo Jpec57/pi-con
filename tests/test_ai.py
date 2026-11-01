@@ -38,12 +38,10 @@ def events(subscriber):
 
 
 # ---- state -----------------------------------------------------------------------------------------------------
-def test_mode_needs_an_api_key(keys, tmp_path):
+def test_mode_can_be_turned_on_without_a_key(keys, tmp_path):
     keys()
     state = AiState(EventBus(), SETTINGS, tmp_path / "ai.json")
-    assert state.configured() == [] and state.set_mode(True) is False and state.mode is False
-    keys("openai")
-    assert state.set_mode(True) is True and state.mode is True
+    assert state.configured() == [] and state.set_mode(True) is True and state.mode is True
 
 
 def test_provider_switch_only_among_configured_and_state_persists(keys, tmp_path):
@@ -60,7 +58,7 @@ def test_provider_switch_only_among_configured_and_state_persists(keys, tmp_path
     fresh = AiState(EventBus(), SETTINGS, tmp_path / "ai.json")
     assert fresh.provider == "anthropic" and fresh.mode is True
     keys()
-    assert AiState(EventBus(), SETTINGS, tmp_path / "ai.json").mode is False  # no key left: off
+    assert AiState(EventBus(), SETTINGS, tmp_path / "ai.json").mode is True  # no key left: still on, the chat reports it
 
 
 def test_snapshot_lists_both_providers(keys, tmp_path):
@@ -238,7 +236,7 @@ def test_voice_switch_between_providers_and_missing_keys(keys, tmp_path):
     assert state2.provider == "anthropic" and any("pas configuré" in e.get("message", "") for e in events(live2))
     r3, state3, _, live3 = router(keys, tmp_path)
     r3.handle("mode ia")
-    assert state3.mode is False and any("aucune clé" in e.get("message", "") for e in events(live3))
+    assert state3.mode is True and any("Mode IA activé" in e.get("message", "") for e in events(live3))
 
 
 def test_control_skills_are_validated():
@@ -307,9 +305,8 @@ def test_ai_endpoints(keys, tmp_path):
     try:
         assert json.loads(call(base + "/ai")[1])["mode"] is False
         status, body = call(base + "/ai/mode?on=1", "POST")
-        assert status == 409 and b"API key" in body
+        assert status == 200 and state.mode is True  # allowed without a key
         keys("anthropic", "openai")
-        assert call(base + "/ai/mode?on=1", "POST")[0] == 200 and state.mode is True
         assert call(base + "/ai/provider?name=openai", "POST")[0] == 200 and state.provider == "openai"
         assert call(base + "/ai/provider?name=bard", "POST")[0] == 409
         assert call(base + "/ai/nope", "POST")[0] == 404

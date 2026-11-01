@@ -6,12 +6,17 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Values given on the command line win over .env: PI_HOST=192.168.1.20 ./scripts/deploy.sh
+env_host="${PI_HOST:-}"; env_user="${PI_USER:-}"; env_port="${PI_PORT:-}"
 if [ -f .env ]; then
   set -a
   # shellcheck disable=SC1091
   . ./.env
   set +a
 fi
+[ -z "$env_host" ] || PI_HOST="$env_host"
+[ -z "$env_user" ] || PI_USER="$env_user"
+[ -z "$env_port" ] || PI_PORT="$env_port"
 
 : "${PI_HOST:?Set PI_HOST in .env (see .env.example)}"
 PI_USER="${PI_USER:-pi}"
@@ -55,7 +60,7 @@ fi
 
 [ -d .venv ] || python3 -m venv .venv
 .venv/bin/pip install --quiet --upgrade pip
-.venv/bin/pip install --quiet --upgrade -r requirements-pi.txt
+.venv/bin/pip install --quiet --upgrade --timeout 30 --retries 5 -r requirements-pi.txt
 .venv/bin/pip install --quiet --upgrade --no-deps 'openwakeword>=0.6,<0.7' .
 .venv/bin/pi-con --download-models
 

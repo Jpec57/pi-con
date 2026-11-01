@@ -88,6 +88,8 @@ class CloudUtterance:
         if self._started is None:
             self._local_text, finished = self._local.accept(frame)
             self._frames.append(frame)
+            if finished and not self._local_text:
+                return "", True  # nothing was said: nothing to send to the cloud
             if finished:  # audio complete: send it, without blocking the microphone loop
                 self._started = time.monotonic()
                 threading.Thread(target=self._run, name="cloud-stt", daemon=True).start()
