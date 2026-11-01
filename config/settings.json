@@ -20,9 +20,10 @@
   "skill_threshold": 0.8,
   "needle_enabled": true,
   "followup_seconds": 10,
+  "recordings_keep": 5,
   "mcp_port": 8765,
   "tts": {
-    "enabled": false,
+    "enabled": true,
     "voice": "fr_FR-siwis-medium",
     "voice_dir": "models/tts-fr",
     "output_device": "pulse"
@@ -34,12 +35,21 @@
     "cloud_stt": true,
     "providers": {
       "anthropic": {
-        "model": "claude-sonnet-5-5"
+        "model": "claude-sonnet-5-5",
+        "price_per_mtok": {
+          "input": 2,
+          "output": 10
+        }
       },
       "openai": {
         "model": "gpt-6-luna",
-        "stt_model": "gpt-4o-transcribe"
+        "stt_model": "gpt-4o-transcribe",
+        "price_per_mtok": {
+          "input": 0.1,
+          "output": 0.5
+        }
       }
-    }
+    },
+    "usd_to_eur": 0.87
   }
 }

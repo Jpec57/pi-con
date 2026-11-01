@@ -93,7 +93,11 @@ def test_reply_is_streamed_then_published_and_remembered(keys, tmp_path):
     provider = FakeProvider("Il fait beau.")
     ai, live, _ = assistant(keys, tmp_path, provider)
     assert ai.ask("quel temps") == "Il fait beau."
-    kinds = [e["type"] for e in events(live)]
+    seen = events(live)
+    markers = [(i, e["active"]) for i, e in enumerate(seen) if e["type"] == "thinking"]
+    assert [active for _, active in markers] == [True, False]  # the UI shows its animation between these two
+    assert markers[0][0] == 0 and seen[markers[1][0] + 1]["type"] == "ai_reply"  # started first, ended right before the answer
+    kinds = [e["type"] for e in seen if e["type"] != "thinking"]
     assert kinds[:-1] == ["ai_delta"] * 3 and kinds[-1] == "ai_reply"
     ai.ask("et demain")
     assert provider.calls[1][0] == [("quel temps", "Il fait beau.")]  # history resent
@@ -236,11 +240,11 @@ def test_voice_switch_between_providers_and_missing_keys(keys, tmp_path):
     assert state2.provider == "anthropic" and any("pas configuré" in e.get("message", "") for e in events(live2))
     r3, state3, _, live3 = router(keys, tmp_path)
     r3.handle("mode ia")
-    assert state3.mode is True and any("Mode IA activé" in e.get("message", "") for e in events(live3))
+    assert state3.mode is True and any("Mode IA vocal activé" in e.get("message", "") for e in events(live3))
 
 
 def test_control_skills_are_validated():
-    with pytest.raises(ValueError, match="on, off or toggle"):
+    with pytest.raises(ValueError, match="on, off, toggle, text or vocal"):
         parse_skills({"skills": [{"name": "x", "phrases": ["a"], "action": {"type": "ai_mode", "mode": "maybe"}}]})
     with pytest.raises(ValueError, match="provider"):
         parse_skills({"skills": [{"name": "x", "phrases": ["a"], "action": {"type": "ai_provider", "provider": "bard"}}]})

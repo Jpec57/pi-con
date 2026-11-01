@@ -148,6 +148,58 @@
   .caption b { color: var(--text); font-weight: 600; }
   main.expanded .caption { opacity: 0; max-height: 0; }
 
+  /* ---- transcript debug line ---- */
+  .debug-line { align-self: center; max-width: 80%; margin: -2px 6px 6px; font-size: .72rem; color: var(--muted); font-style: italic; text-align: center; }
+  /* ---- the AI's own icon at the left of its answers ---- */
+  .ai-line { display: flex; align-items: flex-start; gap: 10px; max-width: 100%; }
+  .ai-icon { flex: none; width: 30px; height: 30px; margin-top: 2px; border-radius: 50%; display: grid; place-items: center; font-size: .66rem; font-weight: 800; letter-spacing: .03em; color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent2)); box-shadow: 0 0 16px -4px var(--glow); user-select: none; }
+  /* ---- AI selector: off / text / vocal ---- */
+  .ai-seg { display: inline-flex; align-items: stretch; border-radius: 999px; border: 1px solid var(--glass-line); background: var(--glass); backdrop-filter: blur(14px); overflow: hidden; }
+  .ai-seg .tag { display: grid; place-items: center; padding: 0 4px 0 11px; font-size: .74rem; font-weight: 800; letter-spacing: .08em; color: var(--muted); }
+  .ai-seg button { font: inherit; font-size: .76rem; font-weight: 650; letter-spacing: .04em; padding: 5px 11px; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+  .ai-seg button[aria-pressed="true"] { color: #fff; background: var(--bubble); box-shadow: 0 0 18px -4px var(--glow); }
+  .ai-seg button[data-ai="off"][aria-pressed="true"] { color: var(--text); background: rgba(255,255,255,.1); box-shadow: none; }
+  /* ---- thinking ---- */
+  .dots { display: inline-flex; gap: 6px; padding: 5px 2px; }
+  .dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent2); opacity: .4; animation: dot 1.15s infinite ease-in-out; }
+  .dots i:nth-child(2) { animation-delay: .16s; }
+  .dots i:nth-child(3) { animation-delay: .32s; }
+  @keyframes dot { 0%, 80%, 100% { transform: translateY(0) scale(.85); opacity: .35; } 40% { transform: translateY(-6px) scale(1.1); opacity: 1; } }
+  .orb.thinking { animation: think 1.3s ease-in-out infinite; }
+  @keyframes think { 50% { box-shadow: 0 0 0 10px color-mix(in srgb, var(--accent) 28%, transparent), 0 0 46px 6px var(--glow); } }
+  /* ---- hero picture ---- */
+  .hero { position: fixed; inset: 0; z-index: 1000; background: #07070a; display: grid; grid-template-rows: minmax(0, 1fr) auto; justify-items: center; align-items: center; padding: 16px 16px 0; cursor: pointer; overflow: hidden; animation: hero-fade .4s ease both; }
+  .hero[hidden] { display: none; }
+  .hero-bg { position: absolute; inset: -10%; background-size: cover; background-position: center; filter: blur(40px) saturate(1.35) brightness(.42); animation: hero-bg 1.4s ease both; }
+  .hero figure { position: relative; margin: 0; display: grid; gap: 12px; justify-items: center; max-width: min(94vw, 1000px); }
+  .hero img { display: block; max-width: 100%; max-height: calc(100dvh - 300px); border-radius: 22px; background: #111;
+    box-shadow: 0 30px 90px -20px rgba(0,0,0,.85), 0 0 0 1px rgba(255,255,255,.1), 0 0 90px -12px var(--glow);
+    animation: hero-in 1s cubic-bezier(.16, 1, .3, 1) both, hero-drift 20s ease-in-out 1s infinite alternate; }
+  .hero figcaption { display: grid; gap: 2px; text-align: center; color: #fff; text-shadow: 0 2px 14px rgba(0,0,0,.7); animation: rise .7s .35s cubic-bezier(.2,.8,.2,1) both; }
+  .hero figcaption b { font-size: 1.25rem; letter-spacing: .01em; }
+  .hero figcaption span { font-size: .78rem; opacity: .75; }
+  .hero figcaption a { color: inherit; }
+  .hero-close { position: absolute; top: max(14px, env(safe-area-inset-top)); right: 14px; z-index: 1; width: 46px; height: 46px; color: #fff; background: rgba(0,0,0,.5); border: 1px solid rgba(255,255,255,.25); }
+  .hero-close svg { width: 22px; height: 22px; }
+  .hero-foot { position: relative; z-index: 1; width: 100%; display: grid; gap: 8px; justify-items: center; padding: 10px 16px max(14px, env(safe-area-inset-bottom)); color: #fff; text-shadow: 0 2px 12px rgba(0,0,0,.8); pointer-events: none; }
+  .hero-say { max-width: 62ch; text-align: center; font-size: .95rem; line-height: 1.35; }
+  .hero-say:empty { display: none; }
+  .hero-pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; font-size: .8rem; background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.2); text-shadow: none; }
+  .hero-pill[hidden] { display: none; }
+  .hero-pill .rec { width: 9px; height: 9px; border-radius: 50%; background: #ff5b5b; animation: think 1.3s ease-in-out infinite; }
+  .hero-hint { font-size: .72rem; opacity: .7; }
+  @keyframes hero-fade { from { opacity: 0; } }
+  @keyframes hero-bg { from { opacity: 0; transform: scale(1.35); } }
+  @keyframes hero-in { from { opacity: 0; transform: scale(.62) translateY(48px) rotate(-2deg); filter: blur(22px); } to { opacity: 1; transform: none; filter: none; } }
+  @keyframes hero-drift { to { transform: scale(1.035) translateY(-6px); } }
+  @media (prefers-reduced-motion: reduce) { .hero, .hero *, .dots i, .orb.thinking, .hero-pill .rec { animation: none !important; } .dots i { opacity: .8; } }
+  /* ---- recordings ---- */
+  .recordings { display: grid; gap: 10px; margin-top: 10px; }
+  .rec { padding: 10px 12px; border-radius: 12px; background: var(--glass); border: 1px solid var(--glass-line); display: grid; gap: 6px; font-size: .85rem; }
+  .rec audio { width: 100%; height: 36px; }
+  .rec .meta { color: var(--muted); font-size: .78rem; }
+  .rec .warn { color: #ff8a80; }
+  .rec .none { color: var(--muted); font-style: italic; }
   /* ---- details dialog ---- */
   dialog {
     overflow-y: auto; width: min(640px, calc(100vw - 24px)); max-height: 88dvh; padding: 0; border: 1px solid var(--glass-line); border-radius: 22px; color: var(--text);
@@ -202,7 +254,12 @@
     <div class="head-right">
       <select id="ai-provider" class="ai-provider" aria-label="AI provider" hidden></select>
       <button id="tts-toggle" class="ai-toggle" type="button" aria-pressed="false" title="Spoken replies">Voix</button>
-      <button id="ai-toggle" class="ai-toggle" type="button" aria-pressed="false" title="AI mode">AI</button>
+      <div id="ai-mode" class="ai-seg" role="group" aria-label="AI mode">
+        <span class="tag">AI</span>
+        <button type="button" data-ai="off" aria-pressed="true" title="AI off: only the local skills and canned answers">Off</button>
+        <button type="button" data-ai="text" aria-pressed="false" title="AI text: what the Pi transcribes is sent to the model as text. No audio leaves the Pi.">Text</button>
+        <button type="button" data-ai="vocal" aria-pressed="false" title="AI vocal: the audio of each sentence is uploaded to OpenAI for a better transcription (needs an OpenAI key), then the text goes to the model.">Vocal</button>
+      </div>
       <span id="pill" class="pill">connecting…</span>
       <button id="open-devices" class="icon-btn" type="button" aria-label="Devices" title="Devices">
         <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
@@ -221,6 +278,21 @@
     </div>
     <div id="camera-status"></div>
   </section>
+
+  <div id="hero" class="hero" hidden role="dialog" aria-label="Picture">
+    <div id="hero-bg" class="hero-bg"></div>
+    <figure>
+      <img id="hero-img" alt="" referrerpolicy="no-referrer">
+      <figcaption><b id="hero-title"></b><span id="hero-credit"></span></figcaption>
+    </figure>
+    <button id="hero-close" class="icon-btn hero-close" type="button" aria-label="Close the picture" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <div class="hero-foot">
+      <div id="hero-say" class="hero-say"></div>
+      <span id="hero-listening" class="hero-pill" hidden><i class="rec"></i>Listening…</span>
+      <span id="hero-thinking" class="hero-pill" hidden><span class="dots"><i></i><i></i><i></i></span>Thinking…</span>
+      <div class="hero-hint">Say “enlève l'image”, press Esc, or tap the picture or the X</div>
+    </div>
+  </div>
 
   <section class="stage">
     <div id="chat" class="chat" aria-label="Conversation">
@@ -272,6 +344,15 @@
     </div>
     <div id="control-msg" class="label"></div>
     <div>
+      <div class="label">Microphone test: hear what the speech-to-text gets</div>
+      <div class="toolbar">
+        <button id="record-test" class="btn" type="button">Record 6 s</button>
+        <span id="record-msg" class="note"></span>
+      </div>
+      <div class="note">Every sentence you say is also kept here (last 5), exactly as the recogniser received it. If it sounds fine but the text is wrong, the microphone is not the problem. Recordings stay on the Pi; anyone on your network can play them.</div>
+      <div id="recordings" class="recordings"></div>
+    </div>
+    <div>
       <div class="label">AI &amp; integrations</div>
       <div id="settings" class="settings"></div>
       <div id="settings-msg" class="note"></div>
@@ -284,6 +365,7 @@
 
 <script src="/static/hls.min.js"></script>
 <script>
+  const BOOT_ID = "{{BOOT_ID}}";  // changes each time the app starts
   const WAKE_PHRASE = "{{WAKE_PHRASE}}";  // filled in by the server from config/settings.json
   const $ = (id) => document.getElementById(id);
   const MAX_MESSAGES = 200, TYPE_DELAY_MS = 32, INSTANT_AFTER_S = 5, COLLAPSE_AFTER_MS = 2500;
@@ -292,6 +374,7 @@
 
   // ---------- status ----------
   function setPill() {
+    heroStatus();
     let text, cls = "pill";
     if (failed) { text = "error"; cls += " bad"; }
     else if (!connected) { text = "disconnected"; cls += " bad"; }
@@ -308,7 +391,7 @@
     else {
       const phrase = document.createElement("b"); phrase.textContent = "“" + WAKE_PHRASE + "”";
       caption.append("Say ", phrase, " or tap");
-      if (ai.mode) caption.append(" · AI: " + AI_NAMES[ai.provider]);
+      if (ai.mode) caption.append(" · AI " + (ai.input === "text" ? "text" : "vocal") + ": " + AI_NAMES[ai.provider]);
     }
   }
 
@@ -389,38 +472,46 @@
     live = null; bubble.live = false; bubble.el.classList.remove("live");
     bubble.time.textContent = stamp(event.time);
     typeInto(bubble, event.text, instant);
+    // debug: the live words come from the on-device model; in AI mode the final text can be OpenAI's transcription of the same audio
+    if (event.local && event.local !== event.text) {
+      const note = el("div", { className: "debug-line", textContent: "on-device model heard: " + event.local });
+      note.title = "The text above was written by " + (event.engine === "openai" ? "OpenAI's transcription" : "the on-device model") + "; this is what the on-device model alone understood.";
+      bubble.row.after(note);
+    }
   }
 
   // ---------- AI mode ----------
   function renderAi() {
     const usable = ai.providers.filter((p) => p.configured);
-    const toggle = $("ai-toggle");
-    toggle.setAttribute("aria-pressed", String(ai.mode));
-    toggle.disabled = false;
-    toggle.title = ai.mode ? "AI mode on: what you say goes to " + AI_NAMES[ai.provider] + ". Tap to turn off."
-      : usable.length ? "Turn on AI mode" : "Turn on AI mode (no API key found yet: add one in the settings or in .env)";
+    const active = !ai.mode ? "off" : (ai.input === "text" ? "text" : "vocal");
+    for (const button of document.querySelectorAll("#ai-mode button")) button.setAttribute("aria-pressed", String(button.dataset.ai === active));
+    $("ai-mode").title = usable.length ? "" : "No API key found yet: add one in the settings (gear) or in .env";
     const select = $("ai-provider");
     select.hidden = usable.length < 2;
     select.replaceChildren(...usable.map((p) => new Option(AI_NAMES[p.name], p.name)));
     select.value = ai.provider;
     setPill();
   }
+  function aiIcon(provider) { return el("div", { className: "ai-icon", textContent: "AI", title: AI_NAMES[provider] || "Jarvis" }); }
   function aiBubble() {
     if (aiLive) return aiLive;
+    setThinking(false);
     const row = document.createElement("div"); row.className = "msg assistant";
     const bubble = document.createElement("div"); bubble.className = "bubble ai live";
     const label = document.createElement("time"); label.className = "ai-label";
-    row.append(bubble, label); push(row);
-    return (aiLive = { el: bubble, row, label, text: "" });
+    const icon = aiIcon();
+    row.append(el("div", { className: "ai-line" }, icon, bubble), label); push(row);
+    return (aiLive = { el: bubble, row, label, icon, text: "" });
   }
-  function usageText(u) {  // tokens in / out of the question that produced this answer, and its price when settings.json has one
+  function usageText(u) {  // tokens in / out of the question that produced this answer, and its estimated price in euros when settings.json has the rates
     if (!u) return "";
-    return " · " + u.input + " in / " + u.output + " out" + (u.cost != null ? " · ≈ $" + u.cost.toFixed(4) : "");
+    return " · " + u.input + " in / " + u.output + " out" + (u.cost_eur != null ? " · ≈ " + u.cost_eur.toFixed(u.cost_eur < 0.001 ? 5 : 4) + " €" : "");
   }
   function aiText(event, final) {
     const bubble = aiBubble();
     bubble.text = final ? event.text : bubble.text + event.text;
     bubble.el.textContent = bubble.text;
+    bubble.icon.title = AI_NAMES[event.provider] || "Jarvis";
     bubble.label.textContent = (AI_NAMES[event.provider] || "AI") + (final ? " · " + stamp(event.time) + usageText(event.usage) : "");
     if (final) { bubble.el.classList.remove("live"); aiLive = null; }
     stickToBottom();
@@ -438,7 +529,9 @@
   }
   $("tts-toggle").onclick = () => aiPost("/tts/mode?on=" + (tts.enabled ? 0 : 1));
   fetch("/tts").then((r) => r.json()).then((info) => { tts = info; renderTts(); }).catch(() => {});
-  $("ai-toggle").onclick = () => aiPost("/ai/mode?on=" + (ai.mode ? 0 : 1));
+  for (const button of document.querySelectorAll("#ai-mode button")) {
+    button.onclick = () => aiPost(button.dataset.ai === "off" ? "/ai/mode?on=0" : "/ai/mode?on=1&input=" + button.dataset.ai);
+  }
   $("ai-provider").onchange = (e) => aiPost("/ai/provider?name=" + encodeURIComponent(e.target.value));
   fetch("/ai").then((r) => r.json()).then((info) => { ai = { ...ai, ...info }; renderAi(); }).catch(() => {});
 
@@ -473,10 +566,9 @@
     const root = $("settings"); root.replaceChildren();
     for (const p of info.providers) root.append(providerField(p));
     const stt = el("input", { type: "text", placeholder: "transcription model (default: " + info.default_stt_model + ")", value: info.stt_model, spellcheck: false });
-    const cloud = el("input", { type: "checkbox", checked: info.cloud_stt });
     root.append(el("div", { className: "field" }, el("h3", {}, "Speech recognition in AI mode"),
-      el("div", { className: "row" }, el("label", {}, cloud, "Use OpenAI to transcribe (needs the OpenAI key; audio leaves the Pi in AI mode only)")),
-      el("div", { className: "row" }, stt, el("button", { className: "btn", type: "button", textContent: "Save", onclick: () => settingsCall("/settings/ai", { stt_model: stt.value, cloud_stt: cloud.checked }) }))));
+      el("div", { className: "note", textContent: "Choose with the AI selector in the header. AI vocal uploads the audio of each sentence to OpenAI (needs the OpenAI key) for a better transcription. AI text never sends audio: the Pi's own transcription goes to the model as text." }),
+      el("div", { className: "row" }, stt, el("button", { className: "btn", type: "button", textContent: "Save", onclick: () => settingsCall("/settings/ai", { stt_model: stt.value }) }))));
     const mcp = info.mcp || {};
     const box = el("div", { className: "field" }, el("h3", {}, "MCP connector (Claude / ChatGPT apps)", statusTag(mcp.token_source || "none")));
     if (!mcp.available) box.append(el("div", { className: "note", textContent: "The MCP server is not enabled (set mcp_port in config/settings.json)." }));
@@ -509,10 +601,54 @@
   }
   function hideCamera() {
     cameraName = null; stopVideo();
-    $("camera").hidden = true; app.classList.remove("has-camera");
+    $("camera").hidden = true; app.classList.remove("has-camera");  // a camera-hide never removes a picture: a stray call by the model must not dismiss it
+  }
+  // ---------- hero: a picture the assistant found on the web (only https images from wikimedia.org are ever sent by the app) ----------
+  const hero = $("hero");
+  function hideHero() { hero.hidden = true; $("hero-img").removeAttribute("src"); $("hero-bg").style.backgroundImage = ""; $("hero-say").textContent = ""; heroStatus(); }
+  function heroStatus() {  // while a picture is up the chat is hidden: show that the Pi listens or thinks
+    const box = document.getElementById("hero");  // (not the const: setPill may run before it exists)
+    if (!box || box.hidden) return;
+    const thinking = !!thinkingRow, listening = !!capturing && !thinking;
+    $("hero-thinking").hidden = !thinking; $("hero-listening").hidden = !listening;
+  }
+  function showPicture(event) {
+    if (!/^https:\/\/[^/]*\.wikimedia\.org\//.test(event.url || "")) return;
+    const probe = new Image();  // wait until it is loaded: no broken-image flash, the reveal starts on a ready picture
+    probe.referrerPolicy = "no-referrer";
+    probe.onerror = () => systemLine(null, "Cannot load the picture", "error");
+    probe.onload = () => {
+      $("camera").hidden = true; cameraName = null; stopVideo(); app.classList.remove("has-camera");
+      hero.hidden = true; void hero.offsetWidth;  // hidden -> visible restarts every animation, also when one picture replaces another
+      const img = $("hero-img");
+      img.alt = event.title || ""; img.src = event.url;
+      $("hero-bg").style.backgroundImage = "url(" + JSON.stringify(event.url) + ")";
+      $("hero-title").textContent = event.title || "";
+      const credit = $("hero-credit"); credit.replaceChildren(event.source || "");
+      if (/^https:\/\//.test(event.page || "")) credit.append(" · ", el("a", { href: event.page, target: "_blank", rel: "noopener noreferrer", textContent: "source", onclick: (e) => e.stopPropagation() }));
+      $("hero-say").textContent = "";
+      hero.hidden = false; heroStatus();
+    };
+    probe.src = event.url;
+  }
+  hero.onclick = hideHero;
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !hero.hidden) hideHero(); });
+
+  // ---------- thinking: dots in the chat and a pulsing orb while the AI works (waiting for the model, running a tool) ----------
+  let thinkingRow = null;
+  function setThinking(on) {
+    $("orb").classList.toggle("thinking", on);
+    if (on && !thinkingRow) {
+      const row = document.createElement("div"); row.className = "msg assistant";
+      const bubble = document.createElement("div"); bubble.className = "bubble ai";
+      bubble.setAttribute("role", "status"); bubble.setAttribute("aria-label", "Thinking");
+      bubble.append(el("span", { className: "dots" }, el("i"), el("i"), el("i")));
+      row.append(el("div", { className: "ai-line" }, aiIcon(), bubble)); push(row); thinkingRow = row;
+    } else if (!on && thinkingRow) { thinkingRow.remove(); thinkingRow = null; }
+    heroStatus();
   }
   async function showCamera(name) {
-    stopVideo();
+    hideHero(); stopVideo();
     cameraName = name;
     $("camera-title").textContent = name;
     $("camera-status").textContent = "Connecting…";
@@ -579,8 +715,12 @@
     switch (event.type) {
       case "ai": ai = event; renderAi(); break;
       case "tts": tts = event; renderTts(); break;
+      case "recording": addRecording(event); break;
       case "ai_delta": aiText(event, false); break;
-      case "ai_reply": aiText(event, true); break;
+      case "ai_reply": aiText(event, true); if (!hero.hidden) $("hero-say").textContent = event.text; break;
+      case "image": showPicture(event); break;
+      case "image_hide": hideHero(); break;
+      case "thinking": setThinking(!!event.active); break;
       case "camera":
         if (event.action === "show") showCamera(event.name); else hideCamera();
         break;
@@ -631,8 +771,40 @@
     if (!await post("/listen")) $("caption").textContent = "Speech-to-text is not available";
   };
 
+  // ---------- recordings: hear back what the speech-to-text received ----------
+  function recItem(r) {
+    const when = new Date(r.time * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const audio = el("audio", { controls: true, preload: "none", src: "/recordings/" + r.audio + ".wav" });
+    const text = el("div", {}, el("strong", { textContent: "Understood: " }), el("span", { className: r.text ? "" : "none", textContent: r.text || "(nothing)" }));
+    const kids = [el("div", { className: "meta", textContent: when + " · " + (r.kind === "test" ? "test" : "sentence") + " · " + r.seconds + " s" }), audio, text];
+    if (r.local && r.local !== r.text) kids.push(el("div", { className: "meta", textContent: "Local model alone: " + r.local }));
+    const db = (v) => (v == null ? "–" : v + " dB");
+    kids.push(el("div", { className: "meta", textContent: "peak " + db(r.peak_db) + " · voice " + db(r.speech_db) + " · background " + db(r.noise_db) }));
+    if (r.warning) kids.push(el("div", { className: "meta warn", textContent: "⚠ " + r.warning }));
+    return el("div", { className: "rec" }, ...kids);
+  }
+  async function loadRecordings() {
+    try {
+      const list = await (await fetch("/recordings", { cache: "no-store" })).json();
+      $("recordings").replaceChildren(...list.map(recItem));
+      if (!list.length) $("recordings").textContent = "Nothing recorded yet.";
+    } catch (error) { /* the panel stays empty */ }
+  }
+  $("record-test").onclick = async () => {
+    $("record-msg").textContent = "Speak now for 6 seconds…";
+    const reply = await fetch("/recordings/test?seconds=6", { method: "POST" }).catch(() => null);
+    if (!reply || !reply.ok) $("record-msg").textContent = reply ? await reply.text() : "Cannot reach the app";
+  };
+  function addRecording(r) {
+    $("record-msg").textContent = "";
+    const box = $("recordings");
+    if (!box.querySelector(".rec")) box.replaceChildren();
+    box.prepend(recItem(r));
+    while (box.children.length > 5) box.lastChild.remove();
+  }
+
   const details = $("details");
-  $("open-details").onclick = () => { details.showModal(); refreshDebug(); loadSettings(); };
+  $("open-details").onclick = () => { details.showModal(); refreshDebug(); loadSettings(); loadRecordings(); };
   $("close-details").onclick = () => details.close();
   details.addEventListener("click", (e) => { if (e.target === details) details.close(); });
 
@@ -682,7 +854,10 @@
 
   // ---------- live stream ----------
   const source = new EventSource("/events");
-  source.onopen = () => { connected = true; setPill(); };
+  source.onopen = () => {
+    connected = true; setPill();
+    fetch("/boot", { cache: "no-store" }).then((r) => r.text()).then((id) => { if (id && id !== BOOT_ID) location.reload(); }).catch(() => {});  // the app restarted (e.g. a deploy): this page is out of date
+  };
   source.onerror = () => { connected = false; setPill(); };  // EventSource retries by itself
   source.onmessage = (message) => handle(JSON.parse(message.data));
   setInterval(setPill, 1000);

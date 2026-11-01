@@ -371,13 +371,13 @@ def test_reply_carries_the_tokens_and_the_price_when_known():
         def run(self, *_a):
             return "Il fait beau."
 
-    settings = {"providers": {"anthropic": {"price_per_mtok": {"input": 3, "output": 15}}, "openai": {}}}
+    settings = {"usd_to_eur": 0.5, "providers": {"anthropic": {"price_per_mtok": {"input": 3, "output": 15}}, "openai": {}}}
     bus = EventBus()
     ai = AiAssistant(bus, AiState(bus, settings, path="/dev/null"), lambda: [], provider_factory=lambda name: Client())
     ai.ask("quel temps ?", "anthropic")
     ai.ask("quel temps ?", "openai")
     replies = [e for e in bus.subscribe()[1] if e["type"] == "ai_reply"]
-    assert replies[0]["usage"] == {"input": 1200, "output": 80, "cost": 0.0048}
+    assert replies[0]["usage"] == {"input": 1200, "output": 80, "cost_eur": 0.0024}  # (1200*3 + 80*15) / 1e6 dollars, halved
     assert replies[1]["usage"] == {"input": 1200, "output": 80}  # no price configured: tokens only
 
 
@@ -419,3 +419,448 @@ def test_providers_add_up_the_usage_of_every_round_trip():
     assert provider.run("s", [], "x", [tool], lambda n, a: "ok", lambda c: None) == "Voilà."
     assert provider.last_usage == {"input": 250, "output": 15}
     assert seen["stream_options"] == {"include_usage": True}
+
+
+# ---- recordings: hear back what the speech-to-text received -------------------------------------------------------
+def tone(seconds, amplitude, noise=0.0, rate=16_000):
+    t = np.arange(int(seconds * rate)) / rate
+    rng = np.random.default_rng(0)
+    return (amplitude * 32767 * np.sin(2 * np.pi * 220 * t) + noise * 32767 * rng.standard_normal(len(t))).astype(np.int16)
+
+
+def test_levels_tell_a_good_signal_from_a_clipped_quiet_or_noisy_one():
+    from pi_con.recordings import levels
+
+    good = np.concatenate([tone(1, 0.001), tone(1, 0.3), tone(1, 0.001)])  # silence, voice, silence
+    assert levels(good)["warning"] == "" and levels(good)["speech_db"] > -25
+    assert "clipping" in levels(tone(1, 1.0))["warning"]
+    assert "very quiet" in levels(tone(1, 0.001))["warning"]
+    assert "noisy" in levels(tone(2, 0.05, noise=0.04))["warning"]
+    assert levels(np.zeros(0, dtype=np.int16))["warning"] == "empty"
+
+
+def test_store_saves_a_playable_wav_keeps_the_last_ones_and_checks_ids(tmp_path):
+    import wave
+
+    from pi_con.recordings import RecordingStore
+
+    store = RecordingStore(tmp_path / "rec", keep=2)
+    first = store.add(tone(1, 0.3), text="bonjour", local="bonjour")
+    store.add(tone(1, 0.3), text="deux")
+    store.add(tone(1, 0.3), text="trois")
+    assert [r["text"] for r in store.list()] == ["trois", "deux"]  # newest first, the oldest was deleted
+    assert store.wav(first["audio"]) is None
+    newest = store.list()[0]
+    with wave.open(str(store.wav(newest["audio"])), "rb") as wav:
+        assert (wav.getframerate(), wav.getnchannels(), wav.getsampwidth(), wav.getnframes()) == (16_000, 1, 2, 16_000)
+    for bad in ("../../etc/passwd", "x", newest["audio"] + "/../x", ""):
+        assert store.wav(bad) is None
+
+
+def test_every_utterance_is_recorded_even_when_nothing_was_understood(monkeypatch, tmp_path):
+    from pi_con.recordings import RecordingStore
+
+    clock = [100.0]
+    wl, bus, utterance = follow_up_listener(monkeypatch, clock, {})
+    wl.recordings = RecordingStore(tmp_path, keep=5)
+    sub, _ = bus.subscribe()
+    wl._listen_requested.set()
+    feed(wl, clock, 2)
+    recs = []
+    while not sub.empty():
+        event = sub.get()
+        if event["type"] == "recording":
+            recs.append(event)
+    assert len(recs) == 1 and recs[0]["text"] == "" and recs[0]["seconds"] > 0
+    assert isinstance(recs[0]["id"], int)  # the bus id is untouched: the recording id is "audio"
+    assert wl.recordings.wav(recs[0]["audio"]) is not None
+
+
+def test_recording_test_keeps_raw_audio_and_transcribes_it_locally(monkeypatch, tmp_path):
+    from pi_con.recordings import RecordingStore
+
+    clock = [100.0]
+    wl, bus, utterance = follow_up_listener(monkeypatch, clock, {})
+    wl.transcriber.transcribe = lambda samples: f"{len(samples) // 16000} secondes"
+    wl.recordings = RecordingStore(tmp_path, keep=5)
+    sub, _ = bus.subscribe()
+    assert wl.request_recording(3) and not wl.request_recording(0)
+    feed(wl, clock, 5)
+    recs = [e for e in iter(lambda: sub.get() if not sub.empty() else None, None) if e["type"] == "recording"]
+    assert len(recs) == 1 and recs[0]["kind"] == "test" and recs[0]["text"].endswith("secondes") and 2.5 < recs[0]["seconds"] < 3.6
+
+
+def test_recordings_off_means_no_test_and_no_files(monkeypatch):
+    wl, _, _ = follow_up_listener(monkeypatch, [0.0], {})
+    assert wl.recordings is None and wl.request_recording(5) is False
+
+
+def test_ui_serves_recordings_and_starts_a_test(tmp_path):
+    import urllib.error
+    import urllib.request
+
+    from pi_con.recordings import RecordingStore
+    from pi_con.ui import start_ui
+
+    store = RecordingStore(tmp_path, keep=3)
+    meta = store.add(tone(1, 0.3), text="salut")
+    asked = []
+    server = start_ui(EventBus(), 0, host="127.0.0.1", recordings=store, on_record=lambda s: asked.append(s) or True)
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        listing = json.loads(urllib.request.urlopen(base + "/recordings", timeout=5).read())
+        assert listing[0]["audio"] == meta["audio"] and listing[0]["text"] == "salut"
+        reply = urllib.request.urlopen(base + f"/recordings/{meta['audio']}.wav", timeout=5)
+        assert reply.headers["Content-Type"] == "audio/wav" and reply.read()[:4] == b"RIFF"
+        for bad in ("/recordings/..%2F..%2Fetc%2Fpasswd.wav", "/recordings/20260101-000000-000.wav"):
+            with pytest.raises(urllib.error.HTTPError) as error:
+                urllib.request.urlopen(base + bad, timeout=5)
+            assert error.value.code == 404
+        assert urllib.request.urlopen(urllib.request.Request(base + "/recordings/test?seconds=4", method="POST"), timeout=5).status == 202
+        assert asked == [4.0]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+# ---- goodbye ends the conversation ---------------------------------------------------------------------------------
+def test_a_goodbye_is_read_but_opens_no_follow_up_window(tmp_path):
+    bus = EventBus()
+    speaker, fakes = make(tmp_path, bus=bus)
+    opened, played = [], threading.Event()
+    speaker.after_reply = lambda: opened.append(1)
+    speaker.play = lambda *a: (fakes.played.append(a), played.set())
+    speaker.start()
+    bus.publish("ai_reply", text="À bientôt !", provider="local", end=True)
+    assert played.wait(5)
+    import time
+    time.sleep(0.3)
+    assert opened == [] and fakes.synthesized == ["À bientôt !"]
+    played.clear()
+    bus.publish("ai_reply", text="Et toi ?", provider="local")  # the next answer is a normal one again
+    assert played.wait(5)
+    deadline = time.time() + 5
+    while not opened and time.time() < deadline:
+        time.sleep(0.05)
+    assert opened == [1]
+
+
+def test_the_ai_can_end_the_conversation_with_a_tool(tmp_path):
+    bus = EventBus()
+    speaker, fakes = make(tmp_path, enabled=False, bus=bus)  # voice off: the follow-up would open at once
+    opened = []
+    speaker.after_reply = lambda: opened.append(1)
+    speaker.start()
+    bus.publish("conversation_end", persist=False)
+    bus.publish("ai_reply", text="Bonne soirée !", provider="openai")
+    import time
+    time.sleep(0.4)
+    assert opened == []
+    bus.publish("ai_reply", text="Autre chose ?", provider="openai")
+    deadline = time.time() + 5
+    while not opened and time.time() < deadline:
+        time.sleep(0.05)
+    assert opened == [1]
+
+
+def test_au_revoir_skill_ends_the_conversation_and_end_must_be_boolean(tmp_path):
+    from pi_con.skills import best_match, load_skills
+
+    skills = load_skills("config/skills.json")
+    for heard in ("au revoir jarvis", "bon allez au revoir"):
+        match = best_match(heard, skills, 0.8)
+        assert match.skill.name == "Au revoir" and match.skill.action["end"] is True
+    assert best_match("merci", skills, 0.8).skill.action.get("end") is None  # thanks do not end it
+    bus = EventBus()
+    router = Router(bus, "config/skills.json", {}, None, 0.8)
+    sub, _ = bus.subscribe(after_id=1 << 62)
+    router.handle("au revoir jarvis")
+    replies = [e for e in iter(lambda: sub.get(timeout=1) if not sub.empty() else None, None) if e["type"] == "ai_reply"]
+    assert replies and replies[0]["end"] is True
+    with pytest.raises(ValueError):
+        parse_skills({"skills": [{"name": "x", "phrases": ["a b"], "action": {"type": "reply", "text": "ok", "end": "yes"}}]})
+
+
+# ---- at most 5 recordings ------------------------------------------------------------------------------------------
+def test_never_more_than_five_recordings_whatever_the_setting(tmp_path):
+    from pi_con.recordings import RecordingStore
+
+    store = RecordingStore(tmp_path, keep=50)
+    for i in range(8):
+        store.add(tone(0.2, 0.3), text=str(i))
+    assert store.keep == 5 and len(list(tmp_path.glob("*.wav"))) == 5 and len(list(tmp_path.glob("*.json"))) == 5
+    assert [r["text"] for r in store.list()] == ["7", "6", "5", "4", "3"]
+    assert Settings("hey_jarvis", 0.5, None, ("true",)).recordings_keep == 5
+
+
+# ---- pictures from the web -----------------------------------------------------------------------------------------
+def wiki_pages(*pages):
+    return {"query": {"pages": {str(i): dict(page, index=i + 1) for i, page in enumerate(pages)}}}
+
+
+def test_image_comes_from_the_best_article_with_a_picture():
+    from pi_con import images
+
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        return wiki_pages({"title": "Sans image"}, {
+            "title": "Pikachu", "fullurl": "https://fr.wikipedia.org/wiki/Pikachu",
+            "thumbnail": {"source": "https://upload.wikimedia.org/a/pikachu.jpg"},
+        })
+
+    found = images.find_image("  pikachu ", fetch)
+    assert found == {"url": "https://upload.wikimedia.org/a/pikachu.jpg", "title": "Pikachu", "source": "Wikipédia", "page": "https://fr.wikipedia.org/wiki/Pikachu"}
+    assert len(calls) == 1 and calls[0].startswith("https://fr.wikipedia.org/w/api.php?") and "gsrsearch=pikachu" in calls[0]
+
+
+def test_image_falls_back_to_english_then_commons_and_gives_up_quietly():
+    from pi_con import images
+
+    hosts = []
+
+    def only_commons(url):
+        hosts.append(url.split("/")[2])
+        if "commons" in url:
+            return wiki_pages({"title": "File:Tour Eiffel.jpg", "imageinfo": [{"thumburl": "https://upload.wikimedia.org/t.jpg", "mime": "image/jpeg"}]})
+        return {"batchcomplete": ""}  # no result at all
+
+    found = images.find_image("tour eiffel", only_commons)
+    assert hosts == ["fr.wikipedia.org", "en.wikipedia.org", "commons.wikimedia.org"]
+    assert (found["title"], found["source"]) == ("Tour Eiffel", "Wikimedia Commons")
+
+    def offline(url):
+        raise OSError("no network")
+
+    assert images.find_image("pikachu", offline) is None
+    assert images.find_image("   ", only_commons) is None
+
+
+def test_only_https_wikimedia_images_are_ever_returned():
+    from pi_con import images
+
+    for bad in ("http://upload.wikimedia.org/a.jpg", "https://evil.example/a.jpg", "https://wikimedia.org.evil.example/a.jpg", "javascript:alert(1)", None):
+        assert images.find_image("x", lambda url, bad=bad: wiki_pages({"title": "T", "thumbnail": {"source": bad}})) is None
+
+
+def test_the_ai_can_show_a_picture_and_say_goodbye(monkeypatch):
+    from pi_con import images
+    from pi_con.tools import build_tools
+
+    bus = EventBus()
+    router = type("R", (), {"bus": bus, "run_skill": staticmethod(lambda s: "ok")})()
+    monkeypatch.setattr(images, "find_image", lambda q: {"url": "https://upload.wikimedia.org/p.jpg", "title": q.title(), "source": "Wikipédia", "page": ""} if q != "rien" else None)
+    tools = {t.name: t for t in build_tools(router, {}, None, lambda: (), "ai")}
+    assert {"show_image", "end_conversation"} <= set(tools)
+    assert not {"show_image", "end_conversation"} & {t.name for t in build_tools(router, {}, None, lambda: (), "mcp")}  # not for remote clients
+    sub, _ = bus.subscribe()
+    assert "'Pikachu'" in tools["show_image"].handler({"query": "pikachu"})
+    assert "No picture found" in tools["show_image"].handler({"query": "rien"})
+    with pytest.raises(ValueError):
+        tools["show_image"].handler({"query": "  "})
+    tools["end_conversation"].handler({})
+    types = []
+    while not sub.empty():
+        types.append(sub.get())
+    assert [e["type"] for e in types] == ["image", "conversation_end"] and types[0]["url"].endswith("p.jpg")
+
+
+# ---- thinking markers, transcript engines, page reload ---------------------------------------------------------------
+def test_thinking_ends_on_errors_too():
+    from pi_con.ai.conversation import AiAssistant
+    from pi_con.ai.providers import ProviderError
+    from pi_con.ai.state import AiState
+
+    class Broken:
+        def run(self, *_a):
+            raise ProviderError("no credit")
+
+    bus = EventBus()
+    live, _ = bus.subscribe()
+    AiAssistant(bus, AiState(bus, {}, path="/dev/null"), lambda: [], provider_factory=lambda name: Broken()).ask("salut", "openai")
+    flags = []
+    while not live.empty():
+        event = live.get()
+        if event["type"] == "thinking":
+            flags.append(event["active"])
+    assert flags == [True, False]
+
+
+def test_transcript_carries_what_each_engine_heard(monkeypatch):
+    clock = [100.0]
+    wl, bus, utterance = follow_up_listener(monkeypatch, clock, {20: "montre pikachu"})
+    utterance.local_text, utterance.source = "montre pikachou", "openai"  # the local model garbled it, the cloud fixed it
+    wl.request_followup(10)  # waits for the first word, like a real sentence that starts a little late
+    feed(wl, clock, 3)
+    transcript = next(e for e in bus.subscribe()[1] if e["type"] == "transcript")
+    assert (transcript["text"], transcript["local"], transcript["engine"]) == ("montre pikachu", "montre pikachou", "openai")
+
+
+def test_cloud_utterance_reports_who_wrote_the_text():
+    import numpy as np
+
+    from pi_con.stt import CloudUtterance
+
+    class Local:
+        local_text = ""
+
+        def accept(self, _frame):
+            self.local_text = "montre pikachou"
+            return self.local_text, True
+
+    cloud = CloudUtterance(Local(), lambda audio: "montre pikachu", timeout=2)
+    text, done = "", False
+    deadline = __import__("time").time() + 5
+    while not done and __import__("time").time() < deadline:
+        text, done = cloud.accept(np.zeros(1280, dtype=np.int16))
+    assert (text, cloud.local_text, cloud.source) == ("montre pikachu", "montre pikachou", "openai")
+    broken = CloudUtterance(Local(), lambda audio: 1 / 0, timeout=2)
+    done = False
+    while not done and __import__("time").time() < deadline:
+        text, done = broken.accept(np.zeros(1280, dtype=np.int16))
+    assert (text, broken.source) == ("montre pikachou", "local")  # the cloud failed: the local text is kept
+
+
+def test_page_knows_the_boot_id_so_an_old_tab_reloads_after_a_restart():
+    import urllib.request
+
+    from pi_con.ui import start_ui
+
+    server = start_ui(EventBus(), 0, host="127.0.0.1")
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        boot = urllib.request.urlopen(base + "/boot", timeout=5).read().decode()
+        page = urllib.request.urlopen(base + "/", timeout=5).read().decode()
+        assert boot.isdigit() and f'const BOOT_ID = "{boot}"' in page and "{{" not in page
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_a_short_sentence_in_a_long_silence_is_not_called_noisy():
+    from pi_con.recordings import levels
+
+    quiet = tone(10, 0.0015)  # a 10 s follow-up window of room noise...
+    clip = np.concatenate([quiet[:80_000], tone(1.5, 0.2), quiet[80_000:]])  # ...with 1.5 s of voice in it
+    result = levels(clip)
+    assert result["warning"] == "" and result["speech_db"] > -25 and result["speech_db"] - result["noise_db"] > 25
+
+
+# ---- AI text / AI vocal, and the picture that must not be dismissed -------------------------------------------------
+def test_ai_input_text_never_uploads_audio_and_is_saved(tmp_path):
+    from pi_con.ai.state import AiState
+
+    path = tmp_path / "ai.json"
+    state = AiState(EventBus(), {}, path)
+    assert (state.mode, state.input, state.cloud_stt()) == (False, "vocal", True)  # default: the former behaviour
+    state.set_mode(True, "text")
+    assert (state.input, state.cloud_stt(), state.snapshot()["input"]) == ("text", False, "text")
+    state.set_mode(False)  # turning off keeps the last choice
+    assert AiState(EventBus(), {}, path).input == "text"
+    state.set_mode(True)  # turning on without a choice keeps it too
+    assert state.input == "text"
+    state.set_mode(True, "vocal")
+    assert state.cloud_stt() is True
+    state.set_mode(True, "nonsense")  # unknown values are ignored
+    assert state.input == "vocal"
+
+
+def test_defaults_and_old_saved_choice_map_to_the_new_input(tmp_path):
+    from pi_con.ai.state import AiState
+
+    assert AiState(EventBus(), {"cloud_stt": False}, tmp_path / "a.json").input == "text"  # settings.json default
+    old = tmp_path / "old.json"
+    old.write_text(json.dumps({"mode": True, "options": {"cloud_stt": False}}))  # saved before the choice existed
+    migrated = AiState(EventBus(), {}, old)
+    assert (migrated.mode, migrated.input) == (True, "text")
+
+
+def test_voice_commands_choose_text_or_vocal_and_the_longer_phrase_wins(tmp_path):
+    from pi_con.ai.conversation import AiAssistant
+    from pi_con.ai.state import AiState
+    from pi_con.skills import best_match, load_skills
+
+    skills = load_skills("config/skills.json")
+    assert best_match("mode ia texte", skills, 0.8).skill.action["mode"] == "text"
+    assert best_match("mode ia vocal", skills, 0.8).skill.action["mode"] == "vocal"
+    assert best_match("mode ia", skills, 0.8).skill.action["mode"] == "on"
+    bus = EventBus()
+    state = AiState(bus, {}, tmp_path / "ai.json")
+    router = Router(bus, "config/skills.json", {}, None, 0.8, ai=AiAssistant(bus, state, lambda: []))
+    router.handle("mode ia texte")
+    assert (state.mode, state.input) == (True, "text")
+    router.handle("mode ia vocal")
+    assert (state.mode, state.input) == (True, "vocal")
+    router.handle("mode ia")  # "on" keeps the input
+    assert state.input == "vocal"
+
+
+def test_ai_endpoint_picks_the_input(tmp_path):
+    import urllib.error
+    import urllib.request
+
+    from pi_con.ai.state import AiState
+    from pi_con.ui import start_ui
+
+    bus = EventBus()
+    state = AiState(bus, {}, tmp_path / "ai.json")
+    server = start_ui(bus, 0, host="127.0.0.1", ai_state=state)
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        def post(path):
+            try:
+                return urllib.request.urlopen(urllib.request.Request(base + path, method="POST"), timeout=5).status
+            except urllib.error.HTTPError as error:
+                return error.code
+        assert post("/ai/mode?on=1&input=text") == 200 and (state.mode, state.input) == (True, "text")
+        assert post("/ai/mode?on=1&input=vocal") == 200 and state.input == "vocal"
+        assert post("/ai/mode?on=0") == 200 and (state.mode, state.input) == (False, "vocal")
+        assert post("/ai/mode?on=1&input=carrier-pigeon") == 400 and state.mode is False
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_removing_the_picture_is_local_even_in_ai_mode_and_needle_can_do_it(tmp_path):
+    from pi_con.fallback import NeedleFallback
+    from pi_con.skills import best_match, load_skills
+
+    skills = load_skills("config/skills.json")
+    bus = EventBus()
+
+    class Ai:  # AI mode on: this stand-in fails the test if the sentence is sent to the model
+        state = type("S", (), {"mode": True})()
+
+        def ask(self, _text):
+            raise AssertionError("sent to the model")
+
+    router = Router(bus, "config/skills.json", {}, None, 0.8, ai=Ai())
+    sub, _ = bus.subscribe(after_id=1 << 62)
+    for sentence in ("enlève l'image", "retire la photo", "ferme l'image"):
+        assert router.handle(sentence)
+    kinds = []
+    while not sub.empty():
+        kinds.append(sub.get()["type"])
+    assert kinds.count("image_hide") == 3 and "camera" not in kinds
+    # Needle gets a tool for it too, because the skill opts in with "fallback": true
+    seen = {}
+    fallback = NeedleFallback({}, agent_factory=lambda tools: seen.update(tools={t.__name__: t for t in tools}) or type("A", (), {"run": lambda self, text: seen["tools"]["enlever_l_image"]()})())
+    chosen = fallback.interpret("peux-tu m'enlever cette image s'il te plaît", skills)
+    assert chosen is not None and chosen.action["type"] == "hide_picture" and "enlever_l_image" in seen["tools"]
+
+
+def test_a_camera_hide_does_not_touch_the_picture_and_the_model_has_its_own_tool(monkeypatch):
+    from pi_con.tools import build_tools
+
+    bus = EventBus()
+    skills = parse_skills({"skills": [{"name": "Fermer", "phrases": ["ferme la vidéo"], "action": {"type": "camera_hide"}}]})
+    path = None
+    router = type("R", (), {"bus": bus, "run_skill": staticmethod(lambda s: "ok")})()
+    tools = {t.name: t for t in build_tools(router, {"rabbit": "camera.rabbit"}, None, lambda: skills, "ai")}
+    sub, _ = bus.subscribe()
+    tools["hide_camera"].handler({})
+    assert "image_hide" not in [e["type"] for e in iter(lambda: sub.get() if not sub.empty() else None, None)]  # camera tool: no picture event
+    assert "hide_image" in tools and "show_image" in tools
+    tools["hide_image"].handler({})
+    assert [e["type"] for e in iter(lambda: sub.get() if not sub.empty() else None, None)] == ["image_hide"]

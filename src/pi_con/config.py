@@ -25,6 +25,7 @@ class Settings:
     stt_model_dir: str = "models/stt-fr"
     stt_threads: int = 2
     max_listen_seconds: float = 12.0
+    recordings_keep: int = 5  # utterances kept for the "hear it back" panel (0 = none are saved)
     followup_seconds: float = 10.0  # after an answer, keep listening this long for a follow-up without the wake word (0 = off)
     ha_url: str = "http://127.0.0.1:8123"
     ha_token: str = ""
@@ -77,6 +78,7 @@ def load_settings(path: str | Path | None = None) -> Settings:
         stt_threads=int(data.get("stt_threads", 2)),
         max_listen_seconds=float(data.get("max_listen_seconds", 12.0)),
         followup_seconds=float(data.get("followup_seconds", 10.0)),
+        recordings_keep=int(data.get("recordings_keep", 5)),
         ha_url=str(data.get("home_assistant_url", "http://127.0.0.1:8123")).rstrip("/"),
         ha_token=os.getenv("HA_TOKEN", ""),
         skills_file=str(data.get("skills_file", "config/skills.json")),

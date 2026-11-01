@@ -68,10 +68,11 @@ def test_adding_and_removing_a_key_updates_modes_and_provider(tmp_path):
 
 def test_model_options_override_settings_and_persist(tmp_path):
     state = AiState(EventBus(), AI, tmp_path / "ai.json", SecretStore(None))
-    assert state.model("openai") == "m-o" and state.stt_model() == "t-default" and state.cloud_stt() is True
-    state.set_options(models={"openai": "gpt-x"}, stt_model="whisper-z", cloud_stt=False)
+    assert state.model("openai") == "m-o" and state.stt_model() == "t-default" and state.cloud_stt() is True and state.input == "vocal"
+    state.set_options(models={"openai": "gpt-x"}, stt_model="whisper-z")
+    state.set_mode(True, "text")
     again = AiState(EventBus(), AI, tmp_path / "ai.json", SecretStore(None))
-    assert (again.model("openai"), again.stt_model(), again.cloud_stt()) == ("gpt-x", "whisper-z", False)
+    assert (again.model("openai"), again.stt_model(), again.cloud_stt(), again.input) == ("gpt-x", "whisper-z", False, "text")
     again.set_options(models={"openai": ""})  # empty = back to settings.json
     assert again.model("openai") == "m-o"
 
@@ -161,11 +162,11 @@ def test_cross_site_posts_are_refused(app):
     assert post(base, "/settings/key", {"name": "openai", "value": OTHER}, origin="http://" + host)[0] == 200  # our own page
 
 
-def test_models_and_cloud_stt_are_saved_and_validated(app):
+def test_models_are_saved_and_validated_and_the_input_choice_is_not_a_setting(app):
     base, state, _, _ = app
     status, body = post(base, "/settings/ai", {"models": {"openai": "gpt-9"}, "stt_model": "tx-1", "cloud_stt": False})
-    assert status == 200 and state.model("openai") == "gpt-9" and state.stt_model() == "tx-1" and state.cloud_stt() is False
-    assert json.loads(body)["cloud_stt"] is False
+    assert status == 200 and state.model("openai") == "gpt-9" and state.stt_model() == "tx-1"
+    assert state.input == "vocal" and json.loads(body)["input"] == "vocal"  # the old cloud_stt key is ignored: the header selector decides
     assert post(base, "/settings/ai", {"models": {"openai": "bad model!"}})[0] == 400
 
 

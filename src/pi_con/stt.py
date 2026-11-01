@@ -53,6 +53,8 @@ class Utterance:
     def __init__(self, recognizer: object) -> None:
         self._recognizer = recognizer
         self._stream = recognizer.create_stream()  # type: ignore[attr-defined]
+        self.local_text = ""  # what the local model understood so far (the final text may come from the cloud)
+        self.source = "local"  # which engine wrote the final text
 
     def accept(self, frame: np.ndarray) -> tuple[str, bool]:
         """Return (text so far, True once the speaker has stopped)."""
@@ -61,6 +63,7 @@ class Utterance:
         while recognizer.is_ready(stream):
             recognizer.decode_stream(stream)
         text = " ".join(str(recognizer.get_result(stream)).lower().split())
+        self.local_text = text
         return text, bool(recognizer.is_endpoint(stream))
 
 
@@ -75,6 +78,14 @@ class CloudUtterance:
         self._cloud_text = ""
         self._done = threading.Event()
         self._started: float | None = None
+
+    @property
+    def local_text(self) -> str:
+        return self._local_text
+
+    @property
+    def source(self) -> str:
+        return "openai" if self._cloud_text else "local"  # the cloud text wins when it arrived in time
 
     def _run(self) -> None:
         try:
@@ -117,6 +128,15 @@ class Transcriber:
             rule1_min_trailing_silence=NO_SPEECH_TIMEOUT,
             rule2_min_trailing_silence=END_SILENCE,
         )
+
+    def transcribe(self, samples: np.ndarray) -> str:
+        """Local text for a whole recording (16 kHz int16 mono), as if it had been said live. Used to check recordings."""
+        utterance = Utterance(self._recognizer)
+        padded = np.concatenate([samples.astype(np.int16), np.zeros(int(16_000 * (END_SILENCE + 0.5)), dtype=np.int16)])
+        text = ""
+        for start in range(0, len(padded), 1_280):
+            text, _ = utterance.accept(padded[start:start + 1_280])
+        return text
 
     def start(self) -> Utterance | CloudUtterance:
         local = Utterance(self._recognizer)

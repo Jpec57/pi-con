@@ -43,6 +43,32 @@
       }
     },
     {
+      "name": "Mode IA texte",
+      "phrases": [
+        "mode ia texte",
+        "ia en texte",
+        "mode ia écrit",
+        "mode texte"
+      ],
+      "action": {
+        "type": "ai_mode",
+        "mode": "text"
+      }
+    },
+    {
+      "name": "Mode IA vocal",
+      "phrases": [
+        "mode ia vocal",
+        "ia vocale",
+        "mode ia voix",
+        "ia en vocal"
+      ],
+      "action": {
+        "type": "ai_mode",
+        "mode": "vocal"
+      }
+    },
+    {
       "name": "Mode normal",
       "phrases": [
         "mode normal",
@@ -88,8 +114,7 @@
       "phrases": [
         "active la voix",
         "parle moi",
-        "réponds à voix haute",
-        "mode vocal"
+        "réponds à voix haute"
       ],
       "action": {
         "type": "tts_mode",
@@ -219,9 +244,12 @@
       "name": "Au revoir",
       "phrases": [
         "au revoir",
+        "au revoir jarvis",
         "à bientôt",
+        "à plus tard",
         "bonne nuit",
-        "à plus tard"
+        "c'est tout",
+        "ça sera tout"
       ],
       "action": {
         "type": "reply",
@@ -229,8 +257,29 @@
           "À bientôt !",
           "Au revoir, à tout à l'heure.",
           "Bonne nuit !"
-        ]
+        ],
+        "end": true
       }
+    },
+    {
+      "name": "Enlever l'image",
+      "phrases": [
+        "enlève l'image",
+        "enleve l'image",
+        "retire l'image",
+        "supprime l'image",
+        "ferme l'image",
+        "cache l'image",
+        "enlève la photo",
+        "retire la photo",
+        "ferme la photo"
+      ],
+      "action": {
+        "type": "hide_picture"
+      },
+      "fallback": true,
+      "description": "Remove the picture that is shown on the screen.",
+      "fallback_words": "image photo enleve retire supprime"
     }
   ]
 }

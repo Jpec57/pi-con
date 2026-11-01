@@ -45,6 +45,7 @@ class WakeWordListener:
         transcriber: Transcriber | None = None,
         debug: DebugState | None = None,
         muted: Callable[[], bool] | None = None,
+        recordings=None,
     ) -> None:
         self.settings = settings
         self.on_wake = on_wake
@@ -61,6 +62,8 @@ class WakeWordListener:
         self.muted = muted or (lambda: False)  # true while the assistant speaks: it must not hear itself
         self._listen_requested = threading.Event()
         self._followup_wait = 0.0
+        self.recordings = recordings  # recordings.RecordingStore or None
+        self._record_seconds = 0.0
 
     def request_audio_restart(self) -> bool:
         """Ask the loop to close and reopen the microphone (used by the UI)."""
@@ -80,6 +83,13 @@ class WakeWordListener:
             return False
         self._followup_wait = seconds
         self._listen_requested.set()
+        return True
+
+    def request_recording(self, seconds: float) -> bool:
+        """Record `seconds` of raw microphone audio (no wake word), keep it and transcribe it, to check the microphone (UI button)."""
+        if self.recordings is None or seconds <= 0:
+            return False
+        self._record_seconds = min(float(seconds), 30.0)
         return True
 
     def _capture(self, indata: np.ndarray, _frames: int, _time: object, status: sd.CallbackFlags) -> None:
@@ -214,6 +224,9 @@ class WakeWordListener:
             utterance_started = 0.0
             last_text = ""
             wait = 0.0  # > 0 while waiting for a follow-up: how long to wait for the first word
+            heard: list[np.ndarray] = []  # the audio of the utterance in progress, as the recogniser gets it
+            test_frames: list[np.ndarray] = []
+            test_until = 0.0
             while True:
                 try:
                     frame = self.frames.get(timeout=1.0)
@@ -230,24 +243,46 @@ class WakeWordListener:
                     self.model.reset()
                     continue
                 now = time.monotonic()
+                if self._record_seconds and utterance is None and not test_until:
+                    test_until, test_frames, self._record_seconds = now + self._record_seconds, [], 0.0
+                    self.bus.publish("status", state="info", message="Recording: speak now")
+                    self._announce_capture(True)
+                if test_until and utterance is None:  # a microphone test: keep everything, no wake word, no live transcript
+                    test_frames.append(frame)
+                    if now >= test_until:
+                        test_until = 0.0
+                        self._announce_capture(False)
+                        samples = np.concatenate(test_frames)
+                        text = self.transcriber.transcribe(samples) if self.transcriber is not None else ""
+                        self.bus.publish("recording", persist=False, **self.recordings.add(samples, text=text, local=text, kind="test"))
+                        self.model.reset()
+                    continue
                 if self.transcriber is not None and utterance is None and self._listen_requested.is_set():
-                    utterance, utterance_started, last_text = self.transcriber.start(), now, ""
+                    utterance, utterance_started, last_text, heard = self.transcriber.start(), now, "", []
                     wait, self._followup_wait = self._followup_wait, 0.0
                     self._announce_capture(True)
                 self._listen_requested.clear()
                 if utterance is not None:
+                    heard.append(frame)
                     text, finished = utterance.accept(frame)
                     if text != last_text:
                         last_text = text
                         self.bus.publish("partial", persist=False, text=text)
                     waiting = bool(wait) and not last_text  # a follow-up nobody has started yet: silence is not the end
                     if (finished and not waiting) or now - utterance_started >= self.settings.max_listen_seconds + wait or (waiting and now - utterance_started >= wait):
+                        if self.recordings is not None and heard:  # keep what the recogniser got, also when it understood nothing
+                            self.bus.publish("recording", persist=False, **self.recordings.add(
+                                np.concatenate(heard), text=last_text, local=getattr(utterance, "local_text", last_text),
+                            ))
                         if last_text:
                             logger.info("Heard: %s", last_text)
-                            self.bus.publish("transcript", text=last_text)
+                            self.bus.publish(
+                                "transcript", text=last_text, local=getattr(utterance, "local_text", last_text),
+                                engine=getattr(utterance, "source", "local"),  # who wrote `text`; `local` is what the on-device model alone heard
+                            )
                         else:
                             logger.info("Nothing heard")
-                        utterance, wait = None, 0.0
+                        utterance, wait, heard = None, 0.0, []
                         self._announce_capture(False)
                         self.model.reset()
                     continue

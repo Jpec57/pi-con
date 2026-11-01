@@ -64,14 +64,17 @@ fi
 .venv/bin/pip install --quiet --upgrade --no-deps 'openwakeword>=0.6,<0.7' .
 .venv/bin/pi-con --download-models
 
+PI_UID=\$(id -u "$PI_USER")  # evaluated on the Pi: the audio session (PipeWire) of this user
 sudo tee /etc/systemd/system/$SERVICE.service >/dev/null <<UNIT
 [Unit]
 Description=Pi-Con voice assistant
-After=network-online.target sound.target
+After=network-online.target sound.target user@\$PI_UID.service
+Wants=user@\$PI_UID.service
 
 [Service]
 User=$PI_USER
 SupplementaryGroups=audio
+Environment=XDG_RUNTIME_DIR=/run/user/\$PI_UID
 WorkingDirectory=$PI_TARGET_DIR
 ExecStart=$PI_TARGET_DIR/.venv/bin/pi-con
 Restart=always

@@ -133,6 +133,7 @@ class Speaker:
         self.after_reply = after_reply  # called once an AI answer was read (or at once if it will not be): open the follow-up window
         self._load()
         self._queue: queue.Queue[tuple[int, str, bool]] = queue.Queue(maxsize=QUEUE_SIZE)
+        self._ending = False  # the AI said goodbye: its next answer opens no follow-up window
         self._pending = 0  # sentences queued or being played: the microphone stays muted for all of them
         self._speaking = False
         self._quiet_until = 0.0
@@ -236,8 +237,14 @@ class Speaker:
                 event = subscriber.get()
                 if event["type"] == "say" and event.get("text"):
                     self.say(event["text"])
+                elif event["type"] == "conversation_end":
+                    self._ending = True
                 elif event["type"] == "ai_reply":
-                    if not (event.get("text") and self.say(event["text"], followup=True)) and self.after_reply:
+                    over, self._ending = bool(event.get("end")) or self._ending, False
+                    if over:  # goodbye: read it, then wait for the wake word
+                        if event.get("text"):
+                            self.say(event["text"])
+                    elif not (event.get("text") and self.say(event["text"], followup=True)) and self.after_reply:
                         self.after_reply()  # not read aloud (voice off): the follow-up window opens right away
 
         threading.Thread(target=listen, name="tts-events", daemon=True).start()

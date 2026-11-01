@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 SYSTEM = (
     "Tu es Jarvis, l'assistant vocal d'une maison, sur un Raspberry Pi. Réponds en français, en une ou deux phrases courtes "
-    "faites pour être dites à voix haute, sans markdown ni liste. Utilise les outils pour afficher une caméra ou agir sur la maison "
+    "faites pour être dites à voix haute, sans markdown ni liste. Utilise les outils pour afficher une caméra ou une image (show_image) ou agir sur la maison "
     "quand on te le demande; si un outil échoue, dis-le simplement. La parole est transcrite par un système imparfait avec un micro "
     "médiocre: déduis l'intention des mots mal reconnus (par exemple « rabit » ou « rabi » veut dire « rabbit », « chat gpt » veut dire ChatGPT) "
     "et ne fais pas de remarque sur les fautes de transcription."
@@ -71,6 +71,7 @@ class AiAssistant:
                 return f"error: {error}"
 
         client = None
+        self.bus.publish("thinking", persist=False, active=True)  # the UI shows an animation until the answer (or an error) arrives
         try:
             client = self._provider(name)
             reply = client.run(
@@ -78,13 +79,16 @@ class AiAssistant:
                 lambda chunk: self.bus.publish("ai_delta", persist=False, text=chunk, provider=name),
             )
         except ProviderError as error:
+            self.bus.publish("thinking", persist=False, active=False)
             logger.error("AI %s: %s", name, error)
             self.bus.publish("status", state="info", message=f"AI ({name}): {error}")
             return ""
         except Exception:
+            self.bus.publish("thinking", persist=False, active=False)
             logger.exception("AI %s crashed", name)
             self.bus.publish("status", state="info", message=f"AI ({name}) failed: see the logs")
             return ""
+        self.bus.publish("thinking", persist=False, active=False)
         self._last = time.monotonic()
         self._history.append((text, reply))
         usage = self._usage(client, name)
@@ -95,12 +99,14 @@ class AiAssistant:
         return reply
 
     def _usage(self, client, name: str) -> dict:
-        """Tokens in/out of the last sentence, plus its price in USD when `price_per_mtok` is set for the provider in settings.json."""
+        """Tokens in/out of the last sentence, plus its estimated price in euros when `price_per_mtok` (USD per million tokens)
+        is set for the provider in settings.json; `usd_to_eur` in the "ai" block is the exchange rate (an approximation)."""
         counted = getattr(client, "last_usage", None)
         if not counted or not (counted.get("input") or counted.get("output")):
             return {}
         usage = {"input": int(counted["input"]), "output": int(counted["output"])}
         price = self.state.settings.get("providers", {}).get(name, {}).get("price_per_mtok")  # {"input": 3, "output": 15}: USD per million tokens
         if isinstance(price, dict) and price.get("input") is not None and price.get("output") is not None:
-            usage["cost"] = round((usage["input"] * float(price["input"]) + usage["output"] * float(price["output"])) / 1e6, 6)
+            dollars = (usage["input"] * float(price["input"]) + usage["output"] * float(price["output"])) / 1e6
+            usage["cost_eur"] = round(dollars * float(self.state.settings.get("usd_to_eur", 0.87)), 6)
         return usage

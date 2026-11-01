@@ -32,6 +32,7 @@ def main() -> None:
     parser.add_argument("--test-skill", metavar="TEXT", help="Show which skill a spoken sentence would trigger, then exit (no microphone needed)")
     parser.add_argument("--ask", metavar="TEXT", help="Ask the AI (needs an API key) as if it was said: prints the answer and the tool calls WITHOUT running them")
     parser.add_argument("--provider", choices=("openai", "anthropic"), help="Provider for --ask (default: the saved one)")
+    parser.add_argument("--transcribe", metavar="WAV", help="Show what the local speech-to-text understands in a WAV file (e.g. a recording downloaded from the UI), then exit")
     parser.add_argument("--say", metavar="TEXT", help="Speak TEXT with the configured voice and speaker, then exit (tests the spoken replies)")
     parser.add_argument("--download-models", action="store_true", help="Download the configured model and exit")
     parser.add_argument(
@@ -78,6 +79,16 @@ def main() -> None:
         for event in ask_bus.subscribe()[1]:
             if event["type"] == "status":
                 print(event["message"])
+        return
+    if args.transcribe is not None:
+        import numpy as np
+        from .audio import read_wav_frames
+        from .stt import Transcriber
+        try:
+            frames = read_wav_frames(args.transcribe, settings.sample_rate, settings.frame_samples)
+        except (OSError, ValueError) as error:
+            parser.error(str(error))
+        print(Transcriber(settings.stt_model_dir, settings.stt_threads).transcribe(np.concatenate(frames)) or "(nothing understood)")
         return
     tts_settings = settings.tts or {}
     voice = str(tts_settings.get("voice", "fr_FR-siwis-medium"))
@@ -160,8 +171,12 @@ def main() -> None:
     if settings.mcp_port is not None:
         from .mcp import build_tools, start_mcp
         mcp_server = start_mcp(settings.mcp_port, store.get("MCP_TOKEN"), lambda: build_tools(router, cameras, ha, router.skills, "mcp"))
+    recordings = None
+    if settings.recordings_keep > 0:
+        from .recordings import RecordingStore
+        recordings = RecordingStore(".state/recordings", settings.recordings_keep)
     listener = WakeWordListener(
-        settings, lambda: run_command(settings.command), bus=bus, wav_frames=wav_frames, transcriber=transcriber, debug=debug, muted=speaker.busy,
+        settings, lambda: run_command(settings.command), bus=bus, wav_frames=wav_frames, transcriber=transcriber, debug=debug, muted=speaker.busy, recordings=recordings,
     )
     if settings.followup_seconds > 0:
         speaker.after_reply = lambda: listener.request_followup(settings.followup_seconds)
@@ -173,6 +188,7 @@ def main() -> None:
             wake_phrase=settings.wake_phrase,
             ha=ha,
             ai_state=ai_state, mcp=mcp_server, speaker=speaker,
+            recordings=recordings, on_record=listener.request_recording,
             cameras=cameras,
             debug_info=lambda: {**debug.snapshot(), "log": list(log_ring.lines)},
         )

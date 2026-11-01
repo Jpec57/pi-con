@@ -126,9 +126,12 @@ class Router:
             self.bus.publish("say", persist=False, text=skill.say)  # read aloud by the Speaker when the option is on
 
     def _control(self, action: dict) -> str:
+        if action["type"] == "hide_picture":
+            self.bus.publish("image_hide", persist=False)  # the only things that remove a picture: this, its X, a click, Escape, a new picture or camera
+            return "Image retirée"
         if action["type"] == "reply":
             message = canned_reply(action)
-            self.bus.publish("ai_reply", text=message, provider="local")  # shown as an answer and read aloud when voice is on
+            self.bus.publish("ai_reply", text=message, provider="local", end=bool(action.get("end")))  # shown as an answer and read aloud when voice is on
             return message
         if action["type"] == "tts_mode":
             if self.speaker is None:
@@ -143,9 +146,10 @@ class Router:
             message = "AI mode is not available"
         elif action["type"] == "ai_mode":
             state = self.ai.state
-            on = (not state.mode) if action["mode"] == "toggle" else action["mode"] == "on"
-            state.set_mode(on)
-            message = f"Mode IA activé ({state.provider})" if on else "Mode IA désactivé"
+            chosen = action["mode"]  # on / off / toggle keep the current input; text / vocal also pick it
+            on = (not state.mode) if chosen == "toggle" else chosen != "off"
+            state.set_mode(on, chosen if chosen in ("text", "vocal") else None)
+            message = f"Mode IA {state.input} activé ({state.provider})" if on else "Mode IA désactivé"
         else:
             message = f"IA: {action['provider']}" if self.ai.state.set_provider(action["provider"]) else f"{action['provider']} n'est pas configuré (clé API manquante)"
         self._notify(message)

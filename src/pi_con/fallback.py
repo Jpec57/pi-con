@@ -58,7 +58,7 @@ class NeedleFallback:
             hide_camera.__doc__ = "Close the camera video and go back to the main screen."
             tools.append(hide_camera)
         for skill in skills:
-            if skill.fallback and skill.action["type"] in ("command", "ha_service"):
+            if skill.fallback and skill.action["type"] in ("command", "ha_service", "hide_picture"):
                 tool_name = _slug(skill.name)
                 tools.append(self._skill_tool(tool_name, skill.description or f"{skill.name}. For example: {skill.phrases[0]}."))
                 self._by_tool[tool_name] = skill

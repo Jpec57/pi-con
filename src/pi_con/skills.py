@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 PROVIDERS = ("openai", "anthropic")
-CONTROL_TYPES = ("ai_mode", "ai_provider", "tts_mode", "reply")  # always handled locally, even in AI mode, so the owner can leave it by voice
+CONTROL_TYPES = ("ai_mode", "ai_provider", "tts_mode", "reply", "hide_picture")  # always handled locally, even in AI mode, so the owner can leave it by voice
 ACTION_FIELDS = {  # action type -> required fields
     "camera": ("camera",),
     "camera_hide": (),
@@ -17,6 +17,7 @@ ACTION_FIELDS = {  # action type -> required fields
     "ai_mode": ("mode",),
     "ai_provider": ("provider",),
     "tts_mode": ("mode",),
+    "hide_picture": (),  # removes the picture on screen; local even in AI mode, so a stray model call cannot be the only way
     "reply": ("text",),  # a canned answer: a sentence, or a list of variants of which one is picked at random
 }
 
@@ -66,12 +67,14 @@ def parse_skills(data: object) -> tuple[Skill, ...]:
             raise ValueError(f"{label}: action '{action['type']}' needs {', '.join(missing)}")
         if action["type"] == "command" and not (isinstance(action["command"], list) and all(isinstance(a, str) for a in action["command"])):
             raise ValueError(f"{label}: 'command' must be a list of strings, e.g. [\"/usr/bin/logger\", \"hello\"]")
-        if action["type"] == "ai_mode" and action["mode"] not in ("on", "off", "toggle"):
-            raise ValueError(f"{label}: 'mode' must be on, off or toggle")
+        if action["type"] == "ai_mode" and action["mode"] not in ("on", "off", "toggle", "text", "vocal"):
+            raise ValueError(f"{label}: 'mode' must be on, off, toggle, text or vocal")
         if action["type"] == "reply":
             variants = [action["text"]] if isinstance(action["text"], str) else action["text"]
             if not (isinstance(variants, list) and variants and all(isinstance(v, str) and v.strip() for v in variants)):
                 raise ValueError(f"{label}: 'text' must be a sentence or a non-empty list of sentences")
+            if not isinstance(action.get("end", False), bool):
+                raise ValueError(f"{label}: 'end' must be true or false (true = the conversation is over: stop listening after this answer)")
         if action["type"] == "tts_mode" and action["mode"] not in ("on", "off"):
             raise ValueError(f"{label}: 'mode' must be on or off")
         if action["type"] == "ai_provider" and action["provider"] not in PROVIDERS:
@@ -112,8 +115,10 @@ def rank(text: str, skills: tuple[Skill, ...]) -> list[Match]:
     words = normalize(text)
     if not words:
         return []
-    matches = [max((Match(skill, phrase, phrase_score(words, phrase)) for phrase in skill.phrases), key=lambda m: m.score) for skill in skills]
-    return sorted(matches, key=lambda match: -match.score)
+    def specificity(match: Match) -> tuple[float, int]:  # on equal scores the longer phrase wins: "mode ia texte" beats "mode ia"
+        return match.score, len(normalize(match.phrase))
+    matches = [max((Match(skill, phrase, phrase_score(words, phrase)) for phrase in skill.phrases), key=specificity) for skill in skills]
+    return sorted(matches, key=lambda match: tuple(-part for part in specificity(match)))
 
 
 def best_match(text: str, skills: tuple[Skill, ...], threshold: float) -> Match | None:

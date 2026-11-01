@@ -26,8 +26,12 @@ class AiState:
         self.path = Path(path)
         self.store = store or SecretStore(None)
         self.mode = False
+        # What goes to the model: "vocal" = the audio of each sentence is uploaded to OpenAI for a better transcription (when a
+        # key exists), "text" = only the text the on-device model transcribed (no audio leaves the Pi). settings.json "cloud_stt"
+        # is the default for first start.
+        self.input = "vocal" if ai_settings.get("cloud_stt", True) else "text"
         self.provider = str(ai_settings.get("default_provider", "anthropic"))
-        self.options: dict = {"models": {}, "stt_model": "", "cloud_stt": None}  # UI overrides; empty / None = use settings.json
+        self.options: dict = {"models": {}, "stt_model": ""}  # UI overrides; empty = use settings.json
         self._load()
         self.reconcile()
 
@@ -47,8 +51,8 @@ class AiState:
         return self.options["stt_model"] or self.default_stt_model()
 
     def cloud_stt(self) -> bool:
-        chosen = self.options["cloud_stt"]
-        return bool(self.settings.get("cloud_stt", True) if chosen is None else chosen)
+        """Is the audio uploaded for transcription? Only in "vocal" input; "text" never sends audio."""
+        return self.input == "vocal"
 
     def fingerprint(self, name: str) -> tuple[str, str]:
         """Changes when the key or model of a provider changes, so cached clients are rebuilt."""
@@ -56,7 +60,7 @@ class AiState:
 
     def snapshot(self) -> dict:
         return {
-            "mode": self.mode, "provider": self.provider,
+            "mode": self.mode, "input": self.input, "provider": self.provider,
             "providers": [{"name": n, "configured": n in self.configured(), "model": self.model(n)} for n in PROVIDERS],
         }
 
@@ -68,18 +72,16 @@ class AiState:
                 for n in PROVIDERS
             ],
             "stt_model": self.options["stt_model"], "default_stt_model": self.default_stt_model(),
-            "cloud_stt": self.cloud_stt(),
+            "input": self.input,
         }
 
-    def set_options(self, models: dict | None = None, stt_model: str | None = None, cloud_stt: bool | None = None) -> None:
+    def set_options(self, models: dict | None = None, stt_model: str | None = None) -> None:
         if models is not None:
             for name in PROVIDERS:
                 if name in models:
                     self.options["models"][name] = models[name]
         if stt_model is not None:
             self.options["stt_model"] = stt_model
-        if cloud_stt is not None:
-            self.options["cloud_stt"] = cloud_stt
         self._changed()
 
     def reconcile(self) -> None:
@@ -91,8 +93,10 @@ class AiState:
         self.reconcile()
         self._changed()
 
-    def set_mode(self, on: bool) -> bool:
-        """Always allowed: without a key, the chat says so when something is asked."""
+    def set_mode(self, on: bool, input: str | None = None) -> bool:
+        """Always allowed: without a key, the chat says so when something is asked. `input` ("text" / "vocal") also picks what is sent."""
+        if input in ("text", "vocal"):
+            self.input = input
         self.mode = on
         self._changed()
         return True
@@ -111,7 +115,7 @@ class AiState:
         self.announce()
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(json.dumps({"mode": self.mode, "provider": self.provider, "options": self.options}), encoding="utf-8")
+            self.path.write_text(json.dumps({"mode": self.mode, "input": self.input, "provider": self.provider, "options": self.options}), encoding="utf-8")
         except OSError:
             logger.warning("Cannot save the AI mode to %s", self.path)
 
@@ -127,5 +131,8 @@ class AiState:
         self.options = {
             "models": {k: v for k, v in (options.get("models") or {}).items() if k in PROVIDERS and isinstance(v, str)},
             "stt_model": options.get("stt_model") if isinstance(options.get("stt_model"), str) else "",
-            "cloud_stt": options["cloud_stt"] if isinstance(options.get("cloud_stt"), bool) else None,
         }
+        if saved.get("input") in ("text", "vocal"):
+            self.input = saved["input"]
+        elif options.get("cloud_stt") is False:  # saved before the text / vocal choice existed: "no cloud transcription" was text
+            self.input = "text"

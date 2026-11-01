@@ -6,6 +6,7 @@ import queue
 import re
 import secrets
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections.abc import Callable
 from importlib.resources import files
@@ -38,8 +39,12 @@ class UiServer(ThreadingHTTPServer):
         ai_state=None,
         mcp=None,
         speaker=None,
+        recordings=None,
+        on_record: Callable[[float], bool] | None = None,
     ) -> None:
         super().__init__(address, _Handler)
+        self.recordings = recordings  # recordings.RecordingStore or None
+        self.on_record = on_record
         self.speaker = speaker  # tts.Speaker or None
         self.ai_state = ai_state
         self.mcp = mcp  # McpServer or None
@@ -51,7 +56,8 @@ class UiServer(ThreadingHTTPServer):
         self.debug_info = debug_info
         page = files("pi_con").joinpath("static/index.html").read_text(encoding="utf-8")
         literal = json.dumps(wake_phrase).replace("<", "\\u003c")  # a JS string literal that cannot close the <script>
-        self.page = page.replace('"{{WAKE_PHRASE}}"', literal).encode()
+        self.boot = str(int(time.time() * 1000))  # changes at every start: an open page compares it and reloads itself (a deploy ships new JavaScript)
+        self.page = page.replace('"{{WAKE_PHRASE}}"', literal).replace('"{{BOOT_ID}}"', json.dumps(self.boot)).encode()
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -61,6 +67,8 @@ class _Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path == "/":
             self._send(200, "text/html; charset=utf-8", self.server.page)
+        elif path == "/boot":
+            self._send(200, "text/plain; charset=utf-8", self.server.boot.encode())
         elif path == "/healthz":
             self._send(200, "text/plain; charset=utf-8", b"ok")
         elif path == "/debug":
@@ -73,6 +81,16 @@ class _Handler(BaseHTTPRequestHandler):
         elif path == "/ai":
             state = self.server.ai_state
             self._send(200, "application/json", json.dumps(state.snapshot() if state else {"mode": False, "providers": []}).encode())
+        elif path == "/recordings":
+            store = self.server.recordings
+            self._send(200, "application/json", json.dumps(store.list() if store else []).encode())
+        elif path.startswith("/recordings/") and path.endswith(".wav"):
+            store = self.server.recordings
+            wav = store.wav(path[len("/recordings/"):-len(".wav")]) if store else None
+            if wav is None:
+                self._send(404, "text/plain; charset=utf-8", b"not found")
+            else:
+                self._send(200, "audio/wav", wav.read_bytes())
         elif path == "/tts":
             speaker = self.server.speaker
             self._send(200, "application/json", json.dumps(speaker.snapshot() if speaker else {"enabled": False, "voice": ""}).encode())
@@ -135,7 +153,6 @@ class _Handler(BaseHTTPRequestHandler):
             state.set_options(
                 {k: v.strip() for k, v in (models or {}).items()} if models is not None else None,
                 stt_model.strip() if stt_model is not None else None,
-                body["cloud_stt"] if isinstance(body.get("cloud_stt"), bool) else None,
             )
             state.announce()
             self._send(200, "application/json", json.dumps(self._settings_view()).encode())
@@ -163,7 +180,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(404, "text/plain; charset=utf-8", b"AI mode is not available")
         elif route == "mode":
             on = query.get("on", ["0"])[0] == "1"
-            if state.set_mode(on):
+            choice = query.get("input", [""])[0]
+            if choice not in ("", "text", "vocal"):
+                self._send(400, "text/plain; charset=utf-8", b"input must be text or vocal")
+            elif state.set_mode(on, choice or None):
                 self._send(200, "application/json", json.dumps(state.snapshot()).encode())
             else:
                 self._send(409, "text/plain; charset=utf-8", b"Cannot change the AI mode")
@@ -195,6 +215,10 @@ class _Handler(BaseHTTPRequestHandler):
         parts = urlsplit(self.path)
         if not self._same_origin():
             self._send(403, "text/plain; charset=utf-8", b"cross-site request refused")
+        elif parts.path == "/recordings/test":
+            seconds = float(parse_qs(parts.query).get("seconds", ["6"])[0] or 6)
+            started = self.server.on_record is not None and self.server.on_record(seconds)
+            self._send(202 if started else 409, "text/plain; charset=utf-8", b"recording" if started else b"recordings are off")
         elif parts.path.startswith("/tts/"):
             self._tts_post(parts.path[len("/tts/"):], parse_qs(parts.query))
         elif parts.path.startswith("/settings/"):
@@ -305,9 +329,11 @@ def start_ui(
     ai_state=None,
     mcp=None,
     speaker=None,
+    recordings=None,
+    on_record: Callable[[float], bool] | None = None,
 ) -> UiServer:
     """Serve the UI on a background thread. Bound to all interfaces so other devices on the LAN can open it."""
-    server = UiServer((host, port), bus, on_listen, actions, debug_info, wake_phrase, ha, cameras, ai_state, mcp, speaker)
+    server = UiServer((host, port), bus, on_listen, actions, debug_info, wake_phrase, ha, cameras, ai_state, mcp, speaker, recordings, on_record)
     threading.Thread(target=server.serve_forever, name="ui", daemon=True).start()
     logger.info("UI on http://localhost:%d", server.server_address[1])
     return server
