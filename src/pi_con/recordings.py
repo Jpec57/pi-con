@@ -12,6 +12,7 @@ import re
 import threading
 import time
 import wave
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -60,11 +61,13 @@ class RecordingStore:
         with self._lock:
             self.folder.mkdir(parents=True, exist_ok=True)
             now = time.time()
-            while True:  # one file per millisecond: two recordings saved at once must not overwrite each other
-                rec_id = time.strftime("%Y%m%d-%H%M%S", time.localtime(now)) + f"-{int(now * 1000) % 1000:03d}"
-                if not (self.folder / f"{rec_id}.wav").exists():
-                    break
-                now += 0.001
+            stamp = datetime.fromtimestamp(now)
+            rec_id = stamp.strftime("%Y%m%d-%H%M%S-") + f"{stamp.microsecond // 1000:03d}"
+            existing = [path.stem for path in self.folder.iterdir()
+                        if path.suffix in (".wav", ".json") and ID_PATTERN.fullmatch(path.stem)]
+            if existing and rec_id <= (latest := max(existing)):
+                stamp = datetime.strptime(latest, "%Y%m%d-%H%M%S-%f") + timedelta(milliseconds=1)
+                rec_id = stamp.strftime("%Y%m%d-%H%M%S-") + f"{stamp.microsecond // 1000:03d}"
             meta = {
                 "audio": rec_id, "time": now, "kind": kind, "seconds": round(len(samples) / RATE, 1),
                 "text": text, "local": local, **levels(samples),

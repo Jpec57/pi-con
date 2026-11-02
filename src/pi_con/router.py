@@ -47,7 +47,7 @@ class Router:
     def skills(self) -> tuple[Skill, ...]:
         """Current skills; a broken edit keeps the previous ones and is reported once."""
         try:
-            mtime = self.skills_path.stat().st_mtime
+            mtime = self.skills_path.stat().st_mtime_ns
         except OSError:
             return self._skills
         if mtime != self._loaded_mtime:

@@ -103,12 +103,16 @@ def test_reply_is_streamed_then_published_and_remembered(keys, tmp_path):
     assert provider.calls[1][0] == [("quel temps", "Il fait beau.")]  # history resent
 
 
-def test_history_is_dropped_after_idle_and_bounded(keys, tmp_path):
+def test_history_is_dropped_after_idle_and_bounded(keys, tmp_path, monkeypatch):
+    from pi_con.ai import conversation
+
+    clock = [100.0]
+    monkeypatch.setattr(conversation, "time", NS(monotonic=lambda: clock[0]))
     provider = FakeProvider()
     ai, _, _ = assistant(keys, tmp_path, provider)
-    ai._idle_reset = 0.0
+    ai._idle_reset = 10.0
     ai.ask("un")
-    time.sleep(0.01)
+    clock[0] += 11.0
     ai.ask("deux")
     assert provider.calls[1][0] == []
 

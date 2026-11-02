@@ -39,7 +39,8 @@ def test_ui_value_wins_and_env_is_the_default(tmp_path, monkeypatch):
 def test_saved_values_persist_in_a_private_file(tmp_path):
     path = tmp_path / "state" / "s.json"
     SecretStore(path).set("ANTHROPIC_API_KEY", KEY)
-    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    if os.name == "posix":
+        assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
     assert SecretStore(path).get("ANTHROPIC_API_KEY") == KEY
     assert not list(path.parent.glob("*.tmp"))
 
