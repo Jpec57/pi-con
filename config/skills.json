@@ -203,8 +203,6 @@
     {
       "name": "Qui es-tu",
       "phrases": [
-        "qui es-tu",
-        "tu es qui",
         "comment tu t'appelles",
         "présente-toi"
       ],
@@ -248,7 +246,8 @@
         "à plus tard",
         "bonne nuit",
         "c'est tout",
-        "ça sera tout"
+        "ça sera tout",
+        "bye jarvis"
       ],
       "action": {
         "type": "reply",
