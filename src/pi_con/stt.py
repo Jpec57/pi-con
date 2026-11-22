@@ -84,6 +84,10 @@ class CloudUtterance:
         return self._local_text
 
     @property
+    def needs_finalization(self) -> bool:
+        return bool(getattr(self._local, "needs_finalization", False))
+
+    @property
     def source(self) -> str:
         return "openai" if self._cloud_text else "local"  # the cloud text wins when it arrived in time
 
@@ -108,6 +112,23 @@ class CloudUtterance:
         if self._done.is_set() or time.monotonic() - self._started > self._timeout:
             return self._cloud_text or self._local_text, True
         return self._local_text, False
+
+    def finish(self) -> tuple[str, bool]:
+        """Finalize buffered local engines on the listener's hard duration limit.
+
+        If vocal cloud transcription is enabled, preserve the existing behavior
+        by giving it the same bounded chance to replace the local result.
+        """
+        if self._started is None:
+            finish_local = getattr(self._local, "finish", None)
+            if finish_local is not None:
+                self._local_text, _ = finish_local()
+            if not self._local_text:
+                return "", True
+            self._started = time.monotonic()
+            threading.Thread(target=self._run, name="cloud-stt", daemon=True).start()
+        self._done.wait(self._timeout)
+        return self._cloud_text or self._local_text, True
 
 
 class Transcriber:

@@ -74,6 +74,8 @@ class WakeWordListener:
         """Start transcribing now, as if the wake word had just been heard (used by the UI button)."""
         if self.transcriber is None:
             return False
+        if getattr(self.transcriber, "diagnostic_busy", False):
+            return False
         self._listen_requested.set()
         return True
 
@@ -211,6 +213,26 @@ class WakeWordListener:
     def _announce_capture(self, active: bool) -> None:
         self.bus.publish("capture", persist=False, active=active)
 
+    def _finish_utterance_with_capture_paused(self, utterance, current_text: str) -> tuple[str, bool]:
+        """Finish buffered/offline recognition without filling the bounded mic queue."""
+        self.bus.publish("status", state="info", message="Finalizing local speech recognition")
+        if self.wav_frames is None:
+            self._close_stream()
+        while True:
+            try:
+                self.frames.get_nowait()
+            except queue.Empty:
+                break
+        try:
+            finalize = getattr(utterance, "finish", None)
+            return finalize() if finalize is not None else (current_text, True)
+        except Exception:
+            logger.exception("Could not finalize local speech recognition")
+            return current_text, True
+        finally:
+            if self.wav_frames is None and self._stream is None:
+                self._start_stream()
+
     def run_forever(self) -> None:
         source = "wav file replay" if self.wav_frames is not None else "microphone"
         message = f"Listening for '{self.settings.wakeword}' (threshold {self.settings.threshold:.2f}, {source})"
@@ -228,6 +250,30 @@ class WakeWordListener:
             test_frames: list[np.ndarray] = []
             test_until = 0.0
             while True:
+                # Apply UI-requested engine changes only between utterances. Stop
+                # capture while replacing native model memory so the bounded mic
+                # queue cannot overflow during a slow load.
+                pending_switch = getattr(self.transcriber, "has_pending_switch", None)
+                if utterance is None and not test_until and pending_switch is not None and pending_switch():
+                    self.bus.publish("status", state="info", message="Changing local speech recognition model")
+                    if self.wav_frames is None:
+                        self._close_stream()
+                    while True:
+                        try:
+                            self.frames.get_nowait()
+                        except queue.Empty:
+                            break
+                    try:
+                        succeeded = bool(self.transcriber.apply_pending())
+                    except Exception:
+                        logger.exception("Local STT model switch failed")
+                        succeeded = False
+                    self.model.reset()
+                    if self.wav_frames is None and self._stream is None:
+                        self._start_stream()
+                    message = "Local speech recognition model changed" if succeeded else "Model change failed; using the safe fallback if available"
+                    self.bus.publish("status", state="listening", message=message)
+                    continue
                 try:
                     frame = self.frames.get(timeout=1.0)
                 except queue.Empty:
@@ -240,6 +286,10 @@ class WakeWordListener:
                 if self.capture_rate != self.settings.sample_rate:  # resample here, not in the audio callback
                     frame = to_model_rate(frame, self.capture_rate, self.settings.sample_rate)
                 if utterance is None and self.muted():
+                    self.model.reset()
+                    continue
+                if utterance is None and getattr(self.transcriber, "diagnostic_busy", False):
+                    self._listen_requested.clear()
                     self.model.reset()
                     continue
                 now = time.monotonic()
@@ -265,16 +315,27 @@ class WakeWordListener:
                 if utterance is not None:
                     heard.append(frame)
                     text, finished = utterance.accept(frame)
+                    if getattr(utterance, "needs_finalization", False):
+                        text, finished = self._finish_utterance_with_capture_paused(utterance, last_text)
+                        now = time.monotonic()
                     if text != last_text:
                         last_text = text
                         self.bus.publish("partial", persist=False, text=text)
                     waiting = bool(wait) and not last_text  # a follow-up nobody has started yet: silence is not the end
-                    if (finished and not waiting) or now - utterance_started >= self.settings.max_listen_seconds + wait or (waiting and now - utterance_started >= wait):
+                    duration_limit = now - utterance_started >= self.settings.max_listen_seconds + wait
+                    followup_limit = waiting and now - utterance_started >= wait
+                    if (finished and not waiting) or duration_limit or followup_limit:
+                        if not finished and duration_limit:
+                            last_text, _ = self._finish_utterance_with_capture_paused(utterance, last_text)
+                            now = time.monotonic()
                         if self.recordings is not None and heard:  # keep what the recogniser got, also when it understood nothing
                             self.bus.publish("recording", persist=False, **self.recordings.add(
                                 np.concatenate(heard), text=last_text, local=getattr(utterance, "local_text", last_text),
                             ))
                         if last_text:
+                            note_final = getattr(self.transcriber, "note_final", None)
+                            if note_final is not None:
+                                note_final(last_text, getattr(utterance, "source", "local"), now - utterance_started)
                             logger.info("Heard: %s", last_text)
                             self.bus.publish(
                                 "transcript", text=last_text, local=getattr(utterance, "local_text", last_text),

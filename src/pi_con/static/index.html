@@ -235,6 +235,7 @@
   .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
   .row input[type="password"], .row input[type="text"] { flex: 1 1 160px; min-width: 0; font: inherit; font-size: .86rem; padding: 7px 10px; border-radius: 10px; color: var(--text); background: rgba(0,0,0,.25); border: 1px solid var(--glass-line); }
   .row label { font-size: .84rem; display: flex; gap: 6px; align-items: center; }
+  .row select { flex: 1 1 150px; min-width: 0; font: inherit; font-size: .86rem; padding: 7px 10px; border-radius: 10px; color: var(--text); background: rgba(0,0,0,.25); border: 1px solid var(--glass-line); }
   .note { font-size: .74rem; color: var(--muted); }
   .token-box { font: .78rem ui-monospace, monospace; word-break: break-all; padding: 8px 10px; border-radius: 10px; background: rgba(0,0,0,.35); border: 1px dashed var(--accent2); user-select: all; }
   dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; margin: 0; font-size: .86rem; }
@@ -545,9 +546,14 @@
   async function settingsCall(path, body) {
     $("settings-msg").textContent = "Saving…";
     const reply = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
-    if (!reply || !reply.ok) { $("settings-msg").textContent = reply ? await reply.text() : "Cannot reach the app"; return null; }
+    if (!reply || !reply.ok) {
+      let message = reply ? await reply.text() : "Cannot reach the app";
+      try { message = JSON.parse(message).local_stt_message || message; } catch (error) {}
+      $("settings-msg").textContent = message; return null;
+    }
     $("settings-msg").textContent = "Saved.";
     const info = await reply.json();
+    if (info.local_stt_message) $("settings-msg").textContent = info.local_stt_message;
     renderSettings(info);
     return info;
   }
@@ -569,6 +575,74 @@
     root.append(el("div", { className: "field" }, el("h3", {}, "Speech recognition in AI mode"),
       el("div", { className: "note", textContent: "Choose with the AI selector in the header. AI vocal uploads the audio of each sentence to OpenAI (needs the OpenAI key) for a better transcription. AI text never sends audio: the Pi's own transcription goes to the model as text." }),
       el("div", { className: "row" }, stt, el("button", { className: "btn", type: "button", textContent: "Save", onclick: () => settingsCall("/settings/ai", { stt_model: stt.value }) }))));
+    const local = info.local_stt;
+    if (local) {
+      const names = { "zipformer-fr": "Zipformer FR (Original)", "canary-fr": "Canary 180M INT8", "orukeet-fr": "Orukeet INT8", "vosk-fr": "Vosk Small FR", "vosk-en": "Vosk Small EN" };
+      const box = el("div", { className: "field local-stt" }, el("h3", {}, "Local Speech Recognition"));
+      const modelList = el("div", { className: "local-stt-list" });
+      for (const model of local.models) {
+        const lang = model.languages.join(", ").toUpperCase();
+        const state = model.loading ? "loading…" : model.active ? "active" : model.status === "installed" ? "inactive" : model.status.replaceAll("_", " ");
+        const detail = model.reason ? " · " + model.reason : "";
+        modelList.append(el("div", { className: "note", textContent: `${names[model.id] || model.label}: ${state} · ${lang}${detail}` }));
+      }
+      const choices = el("select", { id: "local-stt-model", "aria-label": "Local speech recognition model" });
+      for (const model of local.models) {
+        const shown = names[model.id] || model.label;
+        const option = el("option", { value: model.id, textContent: shown, disabled: model.status !== "installed" || !!model.reason });
+        if (model.active) option.selected = true;
+        choices.append(option);
+      }
+      const language = el("select", { id: "local-stt-language", "aria-label": "Vosk language" },
+        el("option", { value: "fr", textContent: "French" }), el("option", { value: "en", textContent: "English" }));
+      language.value = local.active_language || "fr";
+      const syncLanguageControl = () => {
+        const isVosk = choices.value.startsWith("vosk-");
+        language.disabled = !isVosk;
+        if (isVosk) language.value = choices.value.slice(5);
+      };
+      choices.onchange = syncLanguageControl;
+      syncLanguageControl();
+      const change = el("button", { className: "btn", type: "button", textContent: local.loading ? "Loading…" : "Change local model", disabled: !!local.loading,
+        onclick: async () => {
+          let id = choices.value;
+          const lang = language.value;
+          if (id === "vosk-fr" || id === "vosk-en") id = lang === "en" ? "vosk-en" : "vosk-fr";
+          await settingsCall("/settings/local-stt", { model: id, ...(id.startsWith("vosk-") ? { language: lang } : {}) });
+        } });
+      const current = el("div", { className: "note", textContent: `Active: ${local.active_model || "unavailable"} (${local.active_language || "—"}) · load ${local.load_seconds == null ? "—" : local.load_seconds.toFixed(2) + " s"}` });
+      const last = local.last_transcription;
+      const lastLine = el("div", { className: "note", textContent: last ? `Last transcription: ${last.elapsed_s.toFixed(2)} s to final text · source ${last.source}` : "Last transcription: —" });
+      box.append(modelList, current, lastLine, el("div", { className: "row" }, choices, language, change));
+      if (local.error) box.append(el("div", { className: "note warn", textContent: "Last model error: " + local.error }));
+      box.append(el("div", { className: "note", textContent: "Changing engines is queued until the current phrase ends. One local model worker is loaded at a time. This selector is separate from the OpenAI cloud transcription model above." }));
+      const records = el("select", { id: "stt-diagnostic-recording", "aria-label": "Recording for local STT diagnostic" });
+      records.append(el("option", { value: "", textContent: "Choose a saved recording" }));
+      fetch("/recordings", { cache: "no-store" }).then((r) => r.json()).then((rows) => {
+        for (const row of rows) records.append(el("option", { value: row.audio, textContent: `${row.audio} · ${row.seconds}s` }));
+      }).catch(() => {});
+      const reference = el("input", { type: "text", id: "stt-diagnostic-reference", placeholder: "Optional verified reference text", spellcheck: false });
+      const result = el("div", { className: "note", id: "stt-diagnostic-result" });
+      const diagnose = el("button", { className: "btn", type: "button", textContent: "Transcribe saved recording", onclick: async () => {
+        if (!records.value) { result.textContent = "Choose a saved recording first."; return; }
+        result.textContent = "Transcribing locally…";
+        const reply = await fetch("/local-stt/diagnostic", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ recording: records.value, reference: reference.value || null }) }).catch(() => null);
+        if (!reply || !reply.ok) { result.textContent = reply ? await reply.text() : "Cannot reach the app"; return; }
+        const data = await reply.json();
+        const mib = (value) => value == null ? "—" : (value / (1024 * 1024)).toFixed(0) + " MiB";
+        const delta = (before, after) => `${mib(before)} → ${mib(after)}`;
+        result.textContent = `${data.model} (${data.language}) · ${data.elapsed_s.toFixed(2)}s · CPU ${data.cpu_seconds == null ? "—" : data.cpu_seconds.toFixed(2) + "s"} · worker RSS peak ${mib(data.rss_peak_bytes)} · MemAvailable ${delta(data.mem_available_before_bytes, data.mem_available_bytes)} · swap ${delta(data.swap_used_before_bytes, data.swap_used_bytes)} · ${data.text || "(empty)"}${data.scores ? ` · WER ${(data.scores.wer * 100).toFixed(1)}% / CER ${(data.scores.cer * 100).toFixed(1)}%` : ""}`;
+      } });
+      const capture = el("button", { className: "btn", type: "button", textContent: "Capture 6-second diagnostic sample", onclick: async () => {
+        result.textContent = "Speak now; this recording is diagnostic only and will not run a command.";
+        const reply = await fetch("/recordings/test?seconds=6", { method: "POST" }).catch(() => null);
+        if (!reply || !reply.ok) result.textContent = reply ? await reply.text() : "Cannot reach the app";
+        else setTimeout(() => loadSettings(), 6500);
+      } });
+      box.append(el("div", { className: "note", textContent: "Diagnostic only: saved audio is processed locally and never sent to OpenAI or routed to home-automation commands. A verified reference is optional." }),
+        el("div", { className: "row" }, records, reference, diagnose, capture), result);
+      root.append(box);
+    }
     const mcp = info.mcp || {};
     const box = el("div", { className: "field" }, el("h3", {}, "MCP connector (Claude / ChatGPT apps)", statusTag(mcp.token_source || "none")));
     if (!mcp.available) box.append(el("div", { className: "note", textContent: "The MCP server is not enabled (set mcp_port in config/settings.json)." }));
@@ -716,6 +790,7 @@
       case "ai": ai = event; renderAi(); break;
       case "tts": tts = event; renderTts(); break;
       case "recording": addRecording(event); break;
+      case "local_stt": loadSettings(); break;
       case "ai_delta": aiText(event, false); break;
       case "ai_reply": aiText(event, true); if (!hero.hidden) $("hero-say").textContent = event.text; break;
       case "image": showPicture(event); break;

@@ -145,6 +145,54 @@ def test_wake_word_starts_transcription_and_publishes_partial_then_final(monkeyp
     assert model.resets == 2  # after the wake word and after the utterance
 
 
+def test_local_model_switch_is_applied_only_after_the_current_utterance(monkeypatch):
+    model = FakeModel([0.9, 0.0])
+    monkeypatch.setattr(listener, "load_model", lambda _name: model)
+    streams = []
+    monkeypatch.setattr(listener.sd, "InputStream", lambda **kw: streams.append(fake_stream(**kw)) or streams[-1])
+    monkeypatch.setattr(listener.sd, "query_devices", lambda *a, **k: {"name": "fake mic", "default_samplerate": 16000})
+    settings = Settings("hey_jarvis", 0.5, None, ("true",), cooldown_seconds=0)
+
+    class SwitchAfterUtterance:
+        def __init__(self):
+            self.pending = False
+            self.accepted = 0
+            self.applied_after = None
+            self.listener = None
+
+        def start(self):
+            owner = self
+            class Utterance:
+                source = "zipformer-fr"
+                local_text = ""
+                def accept(self, _frame):
+                    owner.accepted += 1
+                    finished = owner.accepted == 3
+                    owner.pending = finished
+                    return "test phrase", finished
+            return Utterance()
+
+        def has_pending_switch(self):
+            return self.pending
+
+        def apply_pending(self):
+            self.applied_after = self.accepted
+            self.pending = False
+            self.listener.frames.put(np.zeros(1280, dtype=np.int16))
+            self.listener.frames.put(np.zeros(1280, dtype=np.int16))
+            return True
+
+    manager = SwitchAfterUtterance()
+    wl = listener.WakeWordListener(settings, lambda: None, transcriber=manager)
+    manager.listener = wl
+    for _ in range(1 + 3):
+        wl.frames.put(np.zeros(1280, dtype=np.int16))
+    with pytest.raises(KeyboardInterrupt):
+        wl.run_forever()
+    assert manager.applied_after == 3
+    assert manager.accepted == 3
+
+
 def test_request_listen_is_refused_without_stt():
     wl = listener.WakeWordListener.__new__(listener.WakeWordListener)
     wl.transcriber = None
