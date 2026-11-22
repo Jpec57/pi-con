@@ -21,6 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<9"]
+stt-vosk = ["vosk>=0.3.45"]
 
 [project.scripts]
 pi-con = "pi_con.main:main"

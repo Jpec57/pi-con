@@ -142,9 +142,14 @@ def main() -> None:
         return cloud_stt[fingerprint].transcribe
 
     transcriber = None
+    local_stt = None
     if settings.stt_enabled:
-        from .stt import Transcriber
-        transcriber = Transcriber(settings.stt_model_dir, settings.stt_threads, cloud=cloud_transcribe)
+        from .local_stt import ManagedTranscriber
+        local_stt = ManagedTranscriber(settings.stt_model_dir, settings.stt_threads, cloud=cloud_transcribe, bus=bus)
+        # Zipformer remains the default and startup fallback. A saved alternative
+        # is accepted only if its worker loads and passes the in-process health probe.
+        local_stt.start_initial()
+        transcriber = local_stt
     ha = HomeAssistant(settings.ha_url, settings.ha_token)
     cameras = {camera.name: camera.entity for camera in settings.cameras}
     fallback = None
@@ -189,6 +194,7 @@ def main() -> None:
             ha=ha,
             ai_state=ai_state, mcp=mcp_server, speaker=speaker,
             recordings=recordings, on_record=listener.request_recording,
+            local_stt=local_stt,
             cameras=cameras,
             debug_info=lambda: {**debug.snapshot(), "log": list(log_ring.lines)},
         )
@@ -204,6 +210,9 @@ def main() -> None:
             "Cannot open the audio input (%s). Check `pi-con --list-devices` and 'audio_device'.", error,
         )
         sys.exit(1)
+    finally:
+        if local_stt is not None:
+            local_stt.close()
 
 
 if __name__ == "__main__":

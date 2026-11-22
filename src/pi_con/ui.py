@@ -41,10 +41,12 @@ class UiServer(ThreadingHTTPServer):
         speaker=None,
         recordings=None,
         on_record: Callable[[float], bool] | None = None,
+        local_stt=None,
     ) -> None:
         super().__init__(address, _Handler)
         self.recordings = recordings  # recordings.RecordingStore or None
         self.on_record = on_record
+        self.local_stt = local_stt
         self.speaker = speaker  # tts.Speaker or None
         self.ai_state = ai_state
         self.mcp = mcp  # McpServer or None
@@ -113,6 +115,7 @@ class _Handler(BaseHTTPRequestHandler):
             "available": mcp is not None, "port": mcp.server_address[1] if mcp else None,
             "token_source": store.source("MCP_TOKEN") if store else "none",
         }
+        view["local_stt"] = self.server.local_stt.snapshot() if self.server.local_stt else None
         return view  # no secret in here, ever: only where each one comes from
 
     def _json_body(self) -> dict | None:
@@ -156,6 +159,18 @@ class _Handler(BaseHTTPRequestHandler):
             )
             state.announce()
             self._send(200, "application/json", json.dumps(self._settings_view()).encode())
+        elif route == "local-stt":
+            manager = self.server.local_stt
+            model = body.get("model")
+            language = body.get("language")
+            if manager is None:
+                self._send(404, "text/plain; charset=utf-8", b"Local speech recognition is unavailable")
+            elif not isinstance(model, str) or (language is not None and not isinstance(language, str)):
+                self._send(400, "text/plain; charset=utf-8", b"invalid model or language")
+            else:
+                accepted, message = manager.request_switch(model, language)
+                payload = {**self._settings_view(), "local_stt_message": message}
+                self._send(202 if accepted else 409, "application/json", json.dumps(payload).encode())
         elif route == "mcp":
             mcp = self.server.mcp
             if mcp is None:
@@ -223,6 +238,22 @@ class _Handler(BaseHTTPRequestHandler):
             self._tts_post(parts.path[len("/tts/"):], parse_qs(parts.query))
         elif parts.path.startswith("/settings/"):
             self._settings_post(parts.path[len("/settings/"):])
+        elif parts.path == "/local-stt/diagnostic":
+            manager = self.server.local_stt
+            body = self._json_body()
+            if manager is None or self.server.recordings is None:
+                self._send(404, "text/plain; charset=utf-8", b"local STT diagnostics unavailable")
+            elif body is None or not isinstance(body.get("recording"), str):
+                self._send(400, "text/plain; charset=utf-8", b"recording is required")
+            elif body.get("reference") is not None and (not isinstance(body.get("reference"), str) or len(body["reference"]) > 1000):
+                self._send(400, "text/plain; charset=utf-8", b"invalid reference")
+            else:
+                try:
+                    from .local_stt import diagnostic_from_recording
+                    result = diagnostic_from_recording(manager, self.server.recordings, body["recording"], body.get("reference"))
+                    self._send(200, "application/json", json.dumps(result).encode())
+                except (FileNotFoundError, ValueError, RuntimeError) as error:
+                    self._send(409, "text/plain; charset=utf-8", str(error).encode())
         elif parts.path.startswith("/ai/"):
             self._ai_post(parts.path[len("/ai/"):], parse_qs(parts.query))
         elif self.path.split("?", 1)[0] == "/listen":
@@ -331,9 +362,10 @@ def start_ui(
     speaker=None,
     recordings=None,
     on_record: Callable[[float], bool] | None = None,
+    local_stt=None,
 ) -> UiServer:
     """Serve the UI on a background thread. Bound to all interfaces so other devices on the LAN can open it."""
-    server = UiServer((host, port), bus, on_listen, actions, debug_info, wake_phrase, ha, cameras, ai_state, mcp, speaker, recordings, on_record)
+    server = UiServer((host, port), bus, on_listen, actions, debug_info, wake_phrase, ha, cameras, ai_state, mcp, speaker, recordings, on_record, local_stt)
     threading.Thread(target=server.serve_forever, name="ui", daemon=True).start()
     logger.info("UI on http://localhost:%d", server.server_address[1])
     return server
