@@ -7,10 +7,12 @@ Zipformer FR (the existing default), Canary 180M INT8, Orukeet INT8, and Vosk
 by Pi-Con. Model selection is saved only after a worker has loaded and passed
 its health probe. A rejected load returns to Zipformer when it is available.
 
-**This is not a Raspberry Pi compatibility claim.** These workers and real
-model files have not yet been exercised through this new selector on Jpec's Pi
-4 with 2 GB RAM. Run the first tests with the monitoring and rollback steps
-below. Do not turn off the OS memory protections or add swap as a workaround.
+**This remains an experimental feature.** Jpec has reported a trial on the Pi 4
+with 2 GB RAM. This repository does not include the trial's engine-by-engine
+results, software versions, or resource measurements, so that report does not
+establish compatibility or performance for all listed engines. Use the
+monitoring and rollback steps below. Do not turn off OS memory protections or
+add swap as a workaround.
 
 ## Install this branch without replacing the current installation
 
@@ -213,14 +215,16 @@ or add/change swap to force a model to load.
 
 ## Known limitations and validation status
 
-* Validation on the ASUS ROG / Ubuntu 24.04 host used Python 3.12.3 x86_64:
-  the full suite passed (164 tests). The host lacked the system
+* Before the Pi trial, validation on the ASUS ROG / Ubuntu 24.04 host used
+  Python 3.12.3 x86_64 and passed 164 tests. During merge preparation on the
+  same host, the full suite passed 165 tests. The host lacked the system
   `libportaudio2`, so its library and `libjack` dependency were extracted under
   `/tmp` for this test run; no system package or service was changed. This
   validates Ubuntu/x86_64 behavior only, not ARM64 or Python 3.13 on the Pi.
-* This branch has not run the four actual engines on a Raspberry Pi 4 with
-  2 GB. Python package metadata and an ARM64 wheel do not establish model
-  compatibility, latency, or memory safety on that device.
+* Jpec's Pi 4 / 2 GB trial is reported, but the recovered repository has no
+  results naming the engines exercised or recording memory and performance.
+  Python package metadata and an ARM64 wheel do not establish compatibility,
+  latency, or memory safety for engines not covered by that trial.
 * Zipformer is the startup default. Canary and Orukeet buffer an utterance and
   decode after silence; microphone capture is paused during that inference, so
   speech during the pause can be missed. Vosk's ARM64 Python 3.13 runtime must
